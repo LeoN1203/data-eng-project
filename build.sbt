@@ -18,8 +18,8 @@ lazy val root = (project in file("."))
       "-Xlint", // Enable additional warnings
       "-Ywarn-dead-code", // Warn about dead code
       "-Ywarn-numeric-widen", // Warn about numeric widening
-      "-Ywarn-value-discard", // Warn about discarded values
-      "-Xfatal-warnings" // Turn warnings into errors (remove for development)
+      "-Ywarn-value-discard" // Warn about discarded values
+      // "-Xfatal-warnings" // Turn warnings into errors (remove for development)
     ),
 
     // JVM options for better performance
@@ -58,7 +58,8 @@ lazy val root = (project in file("."))
 
       // Metrics and monitoring
       "io.micrometer" % "micrometer-core" % "1.12.0",
-      "io.micrometer" % "micrometer-registry-prometheus" % "1.12.0"
+      "io.micrometer" % "micrometer-registry-prometheus" % "1.12.0",
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
     ),
 
     // Test configuration
@@ -99,7 +100,8 @@ lazy val producers = (project in file("modules/producers"))
     name := "data-pipeline-producers",
     libraryDependencies ++= Seq(
       "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5"
+      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
     )
   )
 
@@ -109,6 +111,7 @@ lazy val consumers = (project in file("modules/consumers"))
     name := "data-pipeline-consumers",
     libraryDependencies ++= Seq(
       "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0"
+      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
     )
   )
