@@ -2,4 +2,5 @@
 
 docker compose up -d
 
-ngrok http 3001
+# Run ngrok in the background to avoid blocking the script
+ngrok http 3001 &
