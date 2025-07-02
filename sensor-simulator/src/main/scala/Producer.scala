@@ -1,4 +1,4 @@
-package com.datapipeline.producer
+package scala
 
 import org.apache.kafka.clients.producer._
 import org.apache.kafka.common.serialization.StringSerializer
@@ -67,10 +67,13 @@ class IoTDataProducer(topicName: String) {
     */
   case class IoTSensorData(
       deviceId: String,
-      deviceType: String,
+      temperature: Double,
+      humidity: Double,
+      pressure: Double,
+      motion: Boolean,
+      light: Double,
+      acidity: Double,
       location: String,
-      value: Double,
-      unit: String,
       timestamp: Long,
       metadata: Map[String, Any]
   )
@@ -78,19 +81,9 @@ class IoTDataProducer(topicName: String) {
   /** Generate realistic IoT sensor data
     */
   private def generateSensorData(): IoTSensorData = {
-    val deviceType = deviceTypes(random.nextInt(deviceTypes.length))
     val location = locations(random.nextInt(locations.length))
     val deviceId =
-      s"$deviceType-$location-${random.nextInt(100).formatted("%03d")}"
-
-    val (value, unit) = deviceType match {
-      case "temperature" => (18.0 + (random.nextDouble() * 12.0), "celsius")
-      case "humidity"    => (30.0 + (random.nextDouble() * 40.0), "percentage")
-      case "pressure"    => (1010.0 + (random.nextDouble() * 20.0), "hPa")
-      case "motion"      => (if (random.nextBoolean()) 1.0 else 0.0, "boolean")
-      case "light"       => (random.nextDouble() * 1000.0, "lux")
-      case _             => (random.nextDouble() * 100.0, "units")
-    }
+      s"$location-${random.nextInt(100).formatted("%03d")}"
 
     val metadata = Map(
       "battery_level" -> (85 + random.nextInt(15)),
@@ -100,10 +93,13 @@ class IoTDataProducer(topicName: String) {
 
     IoTSensorData(
       deviceId,
-      deviceType,
+      18.0 + (random.nextDouble() * 12.0),
+      30.0 + (random.nextDouble() * 40.0),
+      1010.0 + (random.nextDouble() * 20.0),
+      random.nextBoolean(),
+      random.nextDouble() * 1000.0,
+      6.0 + (random.nextDouble() * 3.0),
       location,
-      value,
-      unit,
       Instant.now.toEpochMilli,
       metadata
     )
@@ -166,13 +162,13 @@ class IoTDataProducer(topicName: String) {
     val intervalMs = 1000 / messagesPerSecond
     val endTime = System.currentTimeMillis() + (durationSeconds * 1000)
 
-    while (
-      System
-        .currentTimeMillis() < endTime && !Thread.currentThread.isInterrupted
-    ) {
-      sendData(asyncMode = true)
-      Thread.sleep(intervalMs)
-    }
+    Iterator
+      .continually(System.currentTimeMillis())
+      .takeWhile(now => now < endTime && !Thread.currentThread.isInterrupted)
+      .foreach { _ =>
+        sendData(asyncMode = true)
+        Thread.sleep(intervalMs)
+      }
 
     println("Data generation completed")
   }

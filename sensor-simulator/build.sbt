@@ -1,7 +1,7 @@
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "2.13.12" // Latest stable Scala 2.13
-ThisBuild / organization := "com.datapipeline"
+ThisBuild / organization := "scala"
 
 // Project definition
 lazy val root = (project in file("."))

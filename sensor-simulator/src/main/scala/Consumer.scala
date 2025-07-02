@@ -1,4 +1,4 @@
-package com.datapipeline.consumer
+package scala
 
 import org.apache.kafka.clients.consumer._
 import org.apache.kafka.common.TopicPartition
@@ -93,25 +93,31 @@ class IoTDataConsumer(topicName: String, consumerGroup: String) {
           // Extract data with pattern matching for safety
           (
             sensorData.get("deviceId"),
-            sensorData.get("deviceType"),
-            sensorData.get("value"),
+            sensorData.get("tempature"),
+            sensorData.get("humidity"),
+            sensorData.get("pressure"),
             sensorData.get("timestamp")
           ) match {
 
             case (
                   Some(deviceId: String),
-                  Some(deviceType: String),
-                  Some(value: Double),
+                  Some(temperature: Double),
+                  Some(humidity: Double),
+                  Some(pressure: Double),
                   Some(timestamp: Long)
                 ) =>
               // Check for alerts
-              if (shouldTriggerAlert(deviceType, value)) {
+              if (shouldTriggerAlert(temperature, humidity, pressure)) {
                 println(
-                  s"ALERT: Device $deviceId reported $deviceType value: $value"
+                  s"ALERT: Device $deviceId reported abnormal readings - " +
+                    s"Temperature: $temperature, Humidity: $humidity, Pressure: $pressure"
                 )
               }
 
-              println(s"Processed: $deviceId [$deviceType] = $value")
+              println(
+                s"Processed: $deviceId at $timestamp - " +
+                  s"Temperature: $temperature, Humidity: $humidity, Pressure: $pressure"
+              )
 
             case _ =>
               System.err.println(
@@ -128,13 +134,23 @@ class IoTDataConsumer(topicName: String, consumerGroup: String) {
 
     /** Alert logic using pattern matching
       */
-    private def shouldTriggerAlert(deviceType: String, value: Double): Boolean =
-      deviceType match {
-        case "temperature" => value > 35.0 || value < 10.0
-        case "humidity"    => value > 80.0 || value < 20.0
-        case "pressure"    => value > 1040.0 || value < 1000.0
-        case "motion"      => value == 1.0
-        case _             => false
+    private def shouldTriggerAlert(
+        temperature: Double,
+        humidity: Double,
+        pressure: Double
+    ): Boolean =
+      if (
+        temperature > 35.0 || temperature < 10.0 ||
+        humidity > 80.0 || humidity < 20.0 ||
+        pressure > 1040.0 || pressure < 1000.0
+      ) {
+        println(
+          s"ALERT: Abnormal readings detected - Temperature: $temperature, Humidity:" +
+            s" $humidity, Pressure: $pressure"
+        )
+        true
+      } else {
+        false
       }
   }
 

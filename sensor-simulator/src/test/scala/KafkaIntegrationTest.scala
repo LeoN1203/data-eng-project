@@ -1,8 +1,8 @@
-package com.datapipeline.test
+package test
 
-import com.datapipeline.producer.IoTDataProducer
-import com.datapipeline.consumer.DataProcessor
-import com.datapipeline.consumer.IoTDataConsumer
+import scala.IoTDataProducer
+import scala.IoTDataConsumer
+import scala.DataProcessor
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
