@@ -47,6 +47,30 @@ object EmailConfig {
   }
   
   /**
+   * Charge la configuration avec des valeurs par défaut pour Mailtrap (test/dev)
+   * Nécessite seulement SMTP_USER et SMTP_PASSWORD en variables d'environnement
+   */
+  def loadMailtrapConfig(): Try[SmtpConfig] = {
+    Try {
+      val user = sys.env.getOrElse("SMTP_USER", 
+        throw new IllegalArgumentException("Variable d'environnement SMTP_USER manquante"))
+      
+      val password = sys.env.getOrElse("SMTP_PASSWORD", 
+        throw new IllegalArgumentException("Variable d'environnement SMTP_PASSWORD manquante"))
+      
+      val fromEmail = sys.env.getOrElse("FROM_EMAIL", "test@example.com") // Email fictif pour Mailtrap
+      
+      SmtpConfig(
+        host = "sandbox.smtp.mailtrap.io",
+        port = 2525,
+        user = user,
+        password = password,
+        fromEmail = fromEmail
+      )
+    }
+  }
+
+  /**
    * Charge la configuration avec des valeurs par défaut pour Gmail
    * Nécessite seulement SMTP_USER et SMTP_PASSWORD en variables d'environnement
    */
@@ -96,7 +120,7 @@ object EmailConfig {
   
   /**
    * Crée un CourrierEmailGateway configuré depuis l'environnement
-   * Essaie d'abord Gmail, puis Outlook si échec
+   * Utilise Mailtrap par défaut pour les tests, Gmail/Outlook selon l'email
    */
   def createEmailGateway(): Try[CourrierEmailGateway] = {
     // Détecte automatiquement le provider basé sur l'email
@@ -123,8 +147,8 @@ object EmailConfig {
         )
       }
     } else {
-      // Par défaut, essaie Gmail
-      loadGmailConfig().map { config =>
+      // Par défaut, utilise Mailtrap pour les tests
+      loadMailtrapConfig().map { config =>
         new CourrierEmailGateway(
           smtpHost = config.host,
           smtpPort = config.port,
@@ -141,15 +165,20 @@ object EmailConfig {
    */
   def printRequiredEnvVars(): Unit = {
     println("Variables d'environnement requises pour l'envoi d'emails :")
-    println("  SMTP_USER=votre.email@outlook.com")
-    println("  SMTP_PASSWORD=votre_mot_de_passe_outlook")
-    println("  FROM_EMAIL=votre.email@outlook.com (optionnel, utilise SMTP_USER par défaut)")
+    println("  SMTP_USER=votre_username_mailtrap")
+    println("  SMTP_PASSWORD=votre_password_mailtrap")
+    println("  FROM_EMAIL=test@example.com (optionnel pour Mailtrap)")
     println("")
-    println("Pour Outlook/Office365, vous devez :")
-    println("  1. Utiliser votre email Outlook/Hotmail complet")
-    println("  2. Utiliser votre mot de passe Outlook normal")
-    println("  3. S'assurer que SMTP est activé dans vos paramètres Outlook")
-    println("  4. Le serveur SMTP utilisé sera : smtp.office365.com:587")
+    println("Configuration Mailtrap (par défaut) :")
+    println("  1. Créez un compte sur https://mailtrap.io")
+    println("  2. Obtenez vos credentials depuis votre inbox Mailtrap")
+    println("  3. Utilisez le username et password fournis par Mailtrap")
+    println("  4. Le serveur SMTP utilisé sera : sandbox.smtp.mailtrap.io:2525")
+    println("")
+    println("Pour Gmail (@gmail.com) :")
+    println("  - Activez la 2FA et générez un mot de passe d'application")
+    println("Pour Outlook (@outlook.com/@hotmail.com) :")
+    println("  - Utilisez votre mot de passe normal ou mot de passe d'application")
   }
   
   /**
