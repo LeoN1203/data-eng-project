@@ -31,9 +31,9 @@ object KafkaS3DataLakePipeline {
       "localhost:9092" // Update with your Kafka brokers
     val kafkaTopic = "iot-sensor-data" // Update with your topic name
     val s3BucketPath =
-      "s3a://your-datalake-bucket/iot-data/" // Update with your S3 bucket
+      "s3://inde-aws-datalake/iot-data/"
     val checkpointLocation =
-      "s3a://your-datalake-bucket/checkpoints/iot-pipeline"
+      "s3://inde-aws-datalake/checkpoints/iot-pipeline"
 
     try {
       // Read from Kafka stream
