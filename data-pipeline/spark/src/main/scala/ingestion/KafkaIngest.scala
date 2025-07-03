@@ -30,12 +30,12 @@ object KafkaS3DataLakePipeline {
 
     // Configuration parameters
     val kafkaBootstrapServers =
-      "localhost:9092" // Update with your Kafka brokers
+      "kafka:9093" // Updated to use unified docker-compose container name with internal port
     val kafkaTopic = "iot-sensor-data" // Update with your topic name
     val s3BucketPath =
-      "s3://inde-aws-datalake/raw/" // Update with your S3 bucket
+      "s3a://inde-aws-datalake/raw/" // Update with your S3 bucket
     val checkpointLocation =
-      "s3://inde-aws-datalake/checkpoints/"
+      "s3a://inde-aws-datalake/checkpoints/"
 
     try {
       // Read from Kafka stream

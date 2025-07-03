@@ -31,7 +31,7 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-eu-west-3}"
 
 # Pipeline Configuration
 JAR_PATH="/tmp/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar"
-SPARK_PACKAGES="org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376"
+SPARK_PACKAGES="org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376,io.delta:delta-core_2.12:2.4.0"
 SPARK_CONFIG="--master local[2] --driver-memory 1g --executor-memory 1g --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
 
 # ====================================================================
