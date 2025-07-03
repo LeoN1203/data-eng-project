@@ -69,19 +69,70 @@ object EmailConfig {
       )
     }
   }
+
+  /**
+   * Charge la configuration avec des valeurs par défaut pour Outlook
+   * Nécessite seulement SMTP_USER et SMTP_PASSWORD en variables d'environnement
+   */
+  def loadOutlookConfig(): Try[SmtpConfig] = {
+    Try {
+      val user = sys.env.getOrElse("SMTP_USER", 
+        throw new IllegalArgumentException("Variable d'environnement SMTP_USER manquante"))
+      
+      val password = sys.env.getOrElse("SMTP_PASSWORD", 
+        throw new IllegalArgumentException("Variable d'environnement SMTP_PASSWORD manquante"))
+      
+      val fromEmail = sys.env.getOrElse("FROM_EMAIL", user)
+      
+      SmtpConfig(
+        host = "smtp.office365.com",
+        port = 587,
+        user = user,
+        password = password,
+        fromEmail = fromEmail
+      )
+    }
+  }
   
   /**
    * Crée un CourrierEmailGateway configuré depuis l'environnement
+   * Essaie d'abord Gmail, puis Outlook si échec
    */
   def createEmailGateway(): Try[CourrierEmailGateway] = {
-    loadGmailConfig().map { config =>
-      new CourrierEmailGateway(
-        smtpHost = config.host,
-        smtpPort = config.port,
-        smtpUser = config.user,
-        smtpPassword = config.password,
-        fromEmail = config.fromEmail
-      )
+    // Détecte automatiquement le provider basé sur l'email
+    val userEmail = sys.env.get("SMTP_USER").getOrElse("")
+    
+    if (userEmail.contains("@gmail.com")) {
+      loadGmailConfig().map { config =>
+        new CourrierEmailGateway(
+          smtpHost = config.host,
+          smtpPort = config.port,
+          smtpUser = config.user,
+          smtpPassword = config.password,
+          fromEmail = config.fromEmail
+        )
+      }
+    } else if (userEmail.contains("@outlook.com") || userEmail.contains("@hotmail.com")) {
+      loadOutlookConfig().map { config =>
+        new CourrierEmailGateway(
+          smtpHost = config.host,
+          smtpPort = config.port,
+          smtpUser = config.user,
+          smtpPassword = config.password,
+          fromEmail = config.fromEmail
+        )
+      }
+    } else {
+      // Par défaut, essaie Gmail
+      loadGmailConfig().map { config =>
+        new CourrierEmailGateway(
+          smtpHost = config.host,
+          smtpPort = config.port,
+          smtpUser = config.user,
+          smtpPassword = config.password,
+          fromEmail = config.fromEmail
+        )
+      }
     }
   }
   
@@ -90,14 +141,15 @@ object EmailConfig {
    */
   def printRequiredEnvVars(): Unit = {
     println("Variables d'environnement requises pour l'envoi d'emails :")
-    println("  SMTP_USER=votre.email@gmail.com")
-    println("  SMTP_PASSWORD=votre_mot_de_passe_application")
-    println("  FROM_EMAIL=votre.email@gmail.com (optionnel, utilise SMTP_USER par défaut)")
+    println("  SMTP_USER=votre.email@outlook.com")
+    println("  SMTP_PASSWORD=votre_mot_de_passe_outlook")
+    println("  FROM_EMAIL=votre.email@outlook.com (optionnel, utilise SMTP_USER par défaut)")
     println("")
-    println("Pour Gmail, vous devez :")
-    println("  1. Activer l'authentification à 2 facteurs")
-    println("  2. Générer un mot de passe d'application")
-    println("  3. Utiliser ce mot de passe d'application (pas votre mot de passe normal)")
+    println("Pour Outlook/Office365, vous devez :")
+    println("  1. Utiliser votre email Outlook/Hotmail complet")
+    println("  2. Utiliser votre mot de passe Outlook normal")
+    println("  3. S'assurer que SMTP est activé dans vos paramètres Outlook")
+    println("  4. Le serveur SMTP utilisé sera : smtp.office365.com:587")
   }
   
   /**

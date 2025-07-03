@@ -20,11 +20,18 @@ class CourrierEmailGateway(
 
   implicit val ec: ExecutionContext = ExecutionContext.global
 
-  // Configuration correcte du mailer avec authentification
-  private val mailer = Mailer(smtpHost, smtpPort)
-    .auth(true)
-    .as(smtpUser, smtpPassword)
-    .startTls(useTLS)()
+  // Configuration SMTP avec authentification et correction du problème HELO
+  private val mailer = {
+    // Configuration des propriétés système pour corriger le problème Outlook
+    System.setProperty("mail.smtp.localhost", "epita.fr")
+    System.setProperty("mail.smtp.connectiontimeout", "30000")
+    System.setProperty("mail.smtp.timeout", "30000")
+    
+    Mailer(smtpHost, smtpPort)
+      .auth(true)
+      .as(smtpUser, smtpPassword)
+      .startTls(useTLS)()
+  }
 
   override def send(email: Email): Unit = {
     println(s"📧 Attempting to send real email to ${email.recipient}")

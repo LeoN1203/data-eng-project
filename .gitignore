@@ -18,4 +18,5 @@ project/plugins/project/
 # IDE specific
 .idea/
 *.iml
-.vscode/
+.vscode/*.bsp
+*.bsp/
