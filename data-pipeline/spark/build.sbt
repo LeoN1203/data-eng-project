@@ -1,6 +1,6 @@
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.13.12" // Latest stable Scala 2.13
+ThisBuild / scalaVersion := "2.13.13" // Latest stable Scala 2.13
 ThisBuild / organization := "scala"
 
 // Project definition
@@ -27,10 +27,19 @@ lazy val root = (project in file("."))
       "-Xmx2G", // Maximum heap size
       "-XX:+UseG1GC", // Use G1 garbage collector
       "-XX:+UseStringDeduplication" // Reduce memory usage
-    ),
-
-    // Dependency management
+    ),    // Dependency management
     libraryDependencies ++= Seq(
+      // Apache Spark dependencies
+      "org.apache.spark" %% "spark-core" % "3.5.0",
+      "org.apache.spark" %% "spark-sql" % "3.5.0",
+      "org.apache.spark" %% "spark-streaming" % "3.5.0",
+      "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0",
+      "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.5.0",
+      
+      // Hadoop/AWS dependencies for S3 support
+      "org.apache.hadoop" % "hadoop-aws" % "3.3.6",
+      "com.amazonaws" % "aws-java-sdk-bundle" % "1.12.565",
+
       // Kafka dependencies for message streaming
       "org.apache.kafka" % "kafka-clients" % "3.6.0",
       "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
@@ -43,6 +52,9 @@ lazy val root = (project in file("."))
       "io.circe" %% "circe-core" % "0.14.6",
       "io.circe" %% "circe-generic" % "0.14.6",
       "io.circe" %% "circe-parser" % "0.14.6",
+
+      // Add the Courrier dependency for sending emails
+      "com.github.daddykotex" %% "courier" % "3.0.1",
 
       // Configuration management
       "com.typesafe" % "config" % "1.4.3",
@@ -60,28 +72,12 @@ lazy val root = (project in file("."))
       "io.micrometer" % "micrometer-core" % "1.12.0",
       "io.micrometer" % "micrometer-registry-prometheus" % "1.12.0",
       "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    ),
-
-    // Test configuration
+    ),    // Test configuration
     Test / parallelExecution := false, // Run tests sequentially for integration tests
     Test / testOptions += Tests.Argument(
       TestFrameworks.ScalaTest,
       "-oD"
-    ), // Show test durations
-
-    // Assembly plugin for creating fat JARs
-    assembly / assemblyMergeStrategy := {
-      case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-      case "application.conf"            => MergeStrategy.concat
-      case "reference.conf"              => MergeStrategy.concat
-      case _                             => MergeStrategy.first
-    },
-
-    // Docker configuration for containerization
-    Docker / packageName := "data-pipeline-scala",
-    Docker / version := version.value,
-    dockerBaseImage := "openjdk:11-jre-slim",
-    dockerExposedPorts := Seq(8080, 9092)
+    ) // Show test durations
   )
 
 // Additional sub-projects for modular architecture
