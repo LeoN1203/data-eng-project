@@ -1,3 +1,5 @@
+package ingestion
+
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.{OutputMode, Trigger}
@@ -31,9 +33,9 @@ object KafkaS3DataLakePipeline {
       "localhost:9092" // Update with your Kafka brokers
     val kafkaTopic = "iot-sensor-data" // Update with your topic name
     val s3BucketPath =
-      "s3a://your-datalake-bucket/iot-data/" // Update with your S3 bucket
+      "s3://inde-aws-datalake/raw/" // Update with your S3 bucket
     val checkpointLocation =
-      "s3a://your-datalake-bucket/checkpoints/iot-pipeline"
+      "s3://inde-aws-datalake/checkpoints/"
 
     try {
       // Read from Kafka stream
@@ -70,7 +72,7 @@ object KafkaS3DataLakePipeline {
       .option("subscribe", topic)
       .option("startingOffsets", "latest") // Use "earliest" for historical data
       .option("failOnDataLoss", "false")
-      .option("kafka.consumer.group.id", "iot-data-lake-consumer")
+      .option("kafka.consumer.group.id", "iot-sensor-spark-consumer")
       .load()
   }
 
@@ -83,10 +85,13 @@ object KafkaS3DataLakePipeline {
     val iotSchema = StructType(
       Seq(
         StructField("deviceId", StringType, nullable = false),
-        StructField("deviceType", StringType, nullable = false),
+        StructField("temperature", DoubleType, nullable = true),
+        StructField("humidity", DoubleType, nullable = true),
+        StructField("pressure", DoubleType, nullable = true),
+        StructField("motion", BooleanType, nullable = true),
+        StructField("light", DoubleType, nullable = true),
+        StructField("acidity", DoubleType, nullable = true),
         StructField("location", StringType, nullable = false),
-        StructField("value", DoubleType, nullable = false),
-        StructField("unit", StringType, nullable = false),
         StructField("timestamp", LongType, nullable = false),
         StructField(
           "metadata",
@@ -121,15 +126,19 @@ object KafkaS3DataLakePipeline {
         col("offset"),
         col("kafka_timestamp"),
         col("parsed_data.deviceId"),
-        col("parsed_data.deviceType"),
         from_unixtime(col("parsed_data.timestamp"))
           .cast("timestamp")
           .as("sensor_timestamp"),
         col("parsed_data.temperature"),
         col("parsed_data.humidity"),
         col("parsed_data.pressure"),
-        col("parsed_data.location.latitude"),
-        col("parsed_data.location.longitude")
+        col("parsed_data.motion"),
+        col("parsed_data.light"),
+        col("parsed_data.acidity"),
+        col("parsed_data.location"),
+        col("parsed_data.metadata.battery_level").as("battery_level"),
+        col("parsed_data.metadata.signal_strength").as("signal_strength"),
+        col("parsed_data.metadata.firmware_version").as("firmware_version")
       )
       // Add processing metadata
       .withColumn("processing_time", current_timestamp())
@@ -157,8 +166,7 @@ object KafkaS3DataLakePipeline {
         "year",
         "month",
         "day",
-        "hour",
-        "deviceType"
+        "hour"
       ) // Partition for efficient querying
       .trigger(
         Trigger.ProcessingTime(30, TimeUnit.SECONDS)
