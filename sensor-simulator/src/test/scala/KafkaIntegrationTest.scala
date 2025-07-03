@@ -21,8 +21,8 @@ object IoTKafkaIntegrationTest {
   implicit val ec: ExecutionContext = ExecutionContext.global
 
   // Test configuration
-  private val TEST_TOPIC = "iot-test-topic"
-  private val TEST_CONSUMER_GROUP = "iot-test-group"
+  private val TEST_TOPIC = "iot-sensor-data"
+  private val TEST_CONSUMER_GROUP = "iot-sensor-spark-consumer"
   private val MESSAGE_COUNT = 10
   private val TEST_TIMEOUT_SECONDS = 30
 

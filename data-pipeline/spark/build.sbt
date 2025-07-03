@@ -1,24 +1,20 @@
 import sbtassembly.AssemblyPlugin.autoImport._
-
-// Enable plugins
-enablePlugins(JavaAppPackaging, DockerPlugin)
+import com.typesafe.sbt.packager.docker.DockerPlugin.autoImport._
+import sbt.Keys._
 
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.12.18" // Updated to match Spark container's Scala version
+ThisBuild / scalaVersion := "2.13.13" // Latest stable Scala 2.13
 ThisBuild / organization := "scala"
-
-// Java compatibility settings for newer JVM versions
-ThisBuild / javacOptions ++= Seq(
-  "-source", "11",
-  "-target", "11"
-)
 
 // Project definition
 lazy val root = (project in file("."))
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(
     name := "data-pipeline-scala",
-
+    mainClass in assembly := Some(
+      "ingestion.KafkaIngest" // Main class for the application
+    ), // Main class for the application
     // Compiler options for better code quality and performance
     scalacOptions ++= Seq(
       "-encoding",
@@ -30,36 +26,32 @@ lazy val root = (project in file("."))
       "-Ywarn-dead-code", // Warn about dead code
       "-Ywarn-numeric-widen", // Warn about numeric widening
       "-Ywarn-value-discard" // Warn about discarded values
+      // "-Xfatal-warnings" // Turn warnings into errors (remove for development)
     ),
 
-    // JVM options for better performance and Java 11 compatibility
+    // JVM options for better performance
     javaOptions ++= Seq(
       "-Xmx2G", // Maximum heap size
-      "-XX:+UseG1GC" // Use G1 garbage collector
+      "-XX:+UseG1GC", // Use G1 garbage collector
+      "-XX:+UseStringDeduplication" // Reduce memory usage
     ),
 
-    // Core dependencies for Spark batch processing
+    // Dependency management
     libraryDependencies ++= Seq(
-      // Apache Spark dependencies
-      "org.apache.spark" %% "spark-core" % "3.5.0",
-      "org.apache.spark" %% "spark-sql" % "3.5.0",
-      "org.apache.spark" %% "spark-streaming" % "3.5.0",
-      "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0",
-      
-      // Delta Lake for ACID transactions and data versioning
-      "io.delta" %% "delta-core" % "2.4.0",
-      
-      // AWS S3 support
-      "org.apache.hadoop" % "hadoop-aws" % "3.3.4",
-      "com.amazonaws" % "aws-java-sdk-bundle" % "1.12.565" exclude("com.fasterxml.jackson.core", "jackson-databind"),
-      
-      // Kafka dependencies for Bronze tier ingestion
+      // Kafka dependencies for message streaming
       "org.apache.kafka" % "kafka-clients" % "3.6.0",
+      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
 
-      // PostgreSQL JDBC driver for Grafana analytics
-      "org.postgresql" % "postgresql" % "42.7.1",
+      // Spark dependencies for data processing
+      "org.apache.spark" %% "spark-core" % "3.5.1",
+      "org.apache.spark" %% "spark-sql" % "3.5.1",
+      "org.apache.spark" %% "spark-streaming" % "3.5.1",
 
-      // JSON processing for sensor data
+      // Akka for actor-based concurrency (useful for IoT device simulation)
+      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
+      "com.typesafe.akka" %% "akka-stream" % "2.8.5",
+
+      // JSON processing
       "io.circe" %% "circe-core" % "0.14.6",
       "io.circe" %% "circe-generic" % "0.14.6",
       "io.circe" %% "circe-parser" % "0.14.6",
@@ -74,17 +66,20 @@ lazy val root = (project in file("."))
       // Testing dependencies
       "org.scalatest" %% "scalatest" % "3.2.17" % Test,
       "org.scalatestplus" %% "mockito-4-6" % "3.2.15.0" % Test,
+      "com.typesafe.akka" %% "akka-testkit" % "2.8.5" % Test,
 
-      // Jackson for JSON processing
+      // Metrics and monitoring
+      "io.micrometer" % "micrometer-core" % "1.12.0",
+      "io.micrometer" % "micrometer-registry-prometheus" % "1.12.0",
       "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
     ),
 
     // Test configuration
-    Test / parallelExecution := false,
+    Test / parallelExecution := false, // Run tests sequentially for integration tests
     Test / testOptions += Tests.Argument(
       TestFrameworks.ScalaTest,
       "-oD"
-    ),
+    ), // Show test durations
 
     // Assembly plugin for creating fat JARs
     assembly / assemblyMergeStrategy := {
@@ -94,9 +89,41 @@ lazy val root = (project in file("."))
       case _                             => MergeStrategy.first
     },
 
-    // Docker configuration
-    Docker / packageName := "data-pipeline-spark",
+    // Docker configuration for containerization
+    Docker / packageName := "data-pipeline-scala",
     Docker / version := version.value,
     dockerBaseImage := "openjdk:11-jre-slim",
-    dockerExposedPorts := Seq(8080)
+    dockerExposedPorts := Seq(8080, 9092)
+  )
+
+// Additional sub-projects for modular architecture
+lazy val common = (project in file("modules/common"))
+  .settings(
+    name := "data-pipeline-common",
+    libraryDependencies ++= Seq(
+      "io.circe" %% "circe-core" % "0.14.6",
+      "io.circe" %% "circe-generic" % "0.14.6"
+    )
+  )
+
+lazy val producers = (project in file("modules/producers"))
+  .dependsOn(common)
+  .settings(
+    name := "data-pipeline-producers",
+    libraryDependencies ++= Seq(
+      "org.apache.kafka" % "kafka-clients" % "3.6.0",
+      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
+    )
+  )
+
+lazy val consumers = (project in file("modules/consumers"))
+  .dependsOn(common)
+  .settings(
+    name := "data-pipeline-consumers",
+    libraryDependencies ++= Seq(
+      "org.apache.kafka" % "kafka-clients" % "3.6.0",
+      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
+    )
   )
