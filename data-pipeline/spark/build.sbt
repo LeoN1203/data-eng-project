@@ -1,6 +1,6 @@
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.13.13" // Latest stable Scala 2.13
+ThisBuild / scalaVersion := "2.12.17" // Compatible with Spark 3.5.0
 ThisBuild / organization := "scala"
 
 // Project definition

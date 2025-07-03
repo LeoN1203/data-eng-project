@@ -1,190 +1,83 @@
 package scala.processing.alerts.email
 
-import scala.util.Try
-
 /**
- * Configuration sécurisée pour les emails SMTP
- * Charge les credentials depuis les variables d'environnement
+ * Email configuration for SMTP settings.
+ * Loads credentials securely from environment variables.
  */
-case class SmtpConfig(
-  host: String,
-  port: Int,
-  user: String,
-  password: String,
-  fromEmail: String
+case class EmailConfig(
+  smtpHost: String,
+  smtpPort: Int,
+  smtpUser: String,
+  smtpPassword: String,
+  fromAddress: String
 )
 
 object EmailConfig {
   
   /**
-   * Charge la configuration SMTP depuis les variables d'environnement
-   * Variables requises :
-   * - SMTP_HOST (ex: smtp.gmail.com)
-   * - SMTP_PORT (ex: 587)
-   * - SMTP_USER (votre email)
-   * - SMTP_PASSWORD (votre mot de passe d'application)
-   * - FROM_EMAIL (email expéditeur, souvent identique à SMTP_USER)
+   * Load email configuration from environment variables.
+   * Required variables:
+   * - SMTP_HOST (e.g., smtp.gmail.com)
+   * - SMTP_PORT (e.g., 587)
+   * - SMTP_USER (your email)
+   * - SMTP_PASSWORD (your app password)
+   * - FROM_EMAIL (sender email, defaults to SMTP_USER)
    */
-  def loadFromEnvironment(): Try[SmtpConfig] = {
-    Try {
-      val host = sys.env.getOrElse("SMTP_HOST", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_HOST manquante"))
+  def loadConfig(): Option[EmailConfig] = {
+    for {
+      host <- sys.env.get("SMTP_HOST")
+      portStr <- sys.env.get("SMTP_PORT")
+      port <- scala.util.Try(portStr.toInt).toOption
+      user <- sys.env.get("SMTP_USER")
+      password <- sys.env.get("SMTP_PASSWORD")
+    } yield {
+      val fromAddress = sys.env.getOrElse("FROM_EMAIL", user)
       
-      val port = sys.env.get("SMTP_PORT")
-        .map(_.toInt)
-        .getOrElse(throw new IllegalArgumentException("Variable d'environnement SMTP_PORT manquante"))
+      // Auto-detect provider and set appropriate defaults
+      val (finalHost, finalPort) = if (user.contains("@gmail.com")) {
+        ("smtp.gmail.com", 587)
+      } else if (user.contains("@outlook.com") || user.contains("@hotmail.com")) {
+        ("smtp.office365.com", 587)
+      } else {
+        // Default to Mailtrap for testing
+        ("sandbox.smtp.mailtrap.io", port)
+      }
       
-      val user = sys.env.getOrElse("SMTP_USER", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_USER manquante"))
-      
-      val password = sys.env.getOrElse("SMTP_PASSWORD", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_PASSWORD manquante"))
-      
-      val fromEmail = sys.env.getOrElse("FROM_EMAIL", user) // Par défaut, utilise SMTP_USER
-      
-      SmtpConfig(host, port, user, password, fromEmail)
-    }
-  }
-  
-  /**
-   * Charge la configuration avec des valeurs par défaut pour Mailtrap (test/dev)
-   * Nécessite seulement SMTP_USER et SMTP_PASSWORD en variables d'environnement
-   */
-  def loadMailtrapConfig(): Try[SmtpConfig] = {
-    Try {
-      val user = sys.env.getOrElse("SMTP_USER", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_USER manquante"))
-      
-      val password = sys.env.getOrElse("SMTP_PASSWORD", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_PASSWORD manquante"))
-      
-      val fromEmail = sys.env.getOrElse("FROM_EMAIL", "test@example.com") // Email fictif pour Mailtrap
-      
-      SmtpConfig(
-        host = "sandbox.smtp.mailtrap.io",
-        port = 2525,
-        user = user,
-        password = password,
-        fromEmail = fromEmail
-      )
-    }
-  }
-
-  /**
-   * Charge la configuration avec des valeurs par défaut pour Gmail
-   * Nécessite seulement SMTP_USER et SMTP_PASSWORD en variables d'environnement
-   */
-  def loadGmailConfig(): Try[SmtpConfig] = {
-    Try {
-      val user = sys.env.getOrElse("SMTP_USER", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_USER manquante"))
-      
-      val password = sys.env.getOrElse("SMTP_PASSWORD", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_PASSWORD manquante"))
-      
-      val fromEmail = sys.env.getOrElse("FROM_EMAIL", user)
-      
-      SmtpConfig(
-        host = "smtp.gmail.com",
-        port = 587,
-        user = user,
-        password = password,
-        fromEmail = fromEmail
-      )
-    }
-  }
-
-  /**
-   * Charge la configuration avec des valeurs par défaut pour Outlook
-   * Nécessite seulement SMTP_USER et SMTP_PASSWORD en variables d'environnement
-   */
-  def loadOutlookConfig(): Try[SmtpConfig] = {
-    Try {
-      val user = sys.env.getOrElse("SMTP_USER", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_USER manquante"))
-      
-      val password = sys.env.getOrElse("SMTP_PASSWORD", 
-        throw new IllegalArgumentException("Variable d'environnement SMTP_PASSWORD manquante"))
-      
-      val fromEmail = sys.env.getOrElse("FROM_EMAIL", user)
-      
-      SmtpConfig(
-        host = "smtp.office365.com",
-        port = 587,
-        user = user,
-        password = password,
-        fromEmail = fromEmail
+      EmailConfig(
+        smtpHost = sys.env.getOrElse("SMTP_HOST", finalHost),
+        smtpPort = sys.env.get("SMTP_PORT").map(_.toInt).getOrElse(finalPort),
+        smtpUser = user,
+        smtpPassword = password,
+        fromAddress = fromAddress
       )
     }
   }
   
   /**
-   * Crée un CourrierEmailGateway configuré depuis l'environnement
-   * Utilise Mailtrap par défaut pour les tests, Gmail/Outlook selon l'email
-   */
-  def createEmailGateway(): Try[CourrierEmailGateway] = {
-    // Détecte automatiquement le provider basé sur l'email
-    val userEmail = sys.env.get("SMTP_USER").getOrElse("")
-    
-    if (userEmail.contains("@gmail.com")) {
-      loadGmailConfig().map { config =>
-        new CourrierEmailGateway(
-          smtpHost = config.host,
-          smtpPort = config.port,
-          smtpUser = config.user,
-          smtpPassword = config.password,
-          fromEmail = config.fromEmail
-        )
-      }
-    } else if (userEmail.contains("@outlook.com") || userEmail.contains("@hotmail.com")) {
-      loadOutlookConfig().map { config =>
-        new CourrierEmailGateway(
-          smtpHost = config.host,
-          smtpPort = config.port,
-          smtpUser = config.user,
-          smtpPassword = config.password,
-          fromEmail = config.fromEmail
-        )
-      }
-    } else {
-      // Par défaut, utilise Mailtrap pour les tests
-      loadMailtrapConfig().map { config =>
-        new CourrierEmailGateway(
-          smtpHost = config.host,
-          smtpPort = config.port,
-          smtpUser = config.user,
-          smtpPassword = config.password,
-          fromEmail = config.fromEmail
-        )
-      }
-    }
-  }
-  
-  /**
-   * Utilitaire pour afficher les variables d'environnement requises (sans exposer les valeurs)
-   */
-  def printRequiredEnvVars(): Unit = {
-    println("Variables d'environnement requises pour l'envoi d'emails :")
-    println("  SMTP_USER=votre_username_mailtrap")
-    println("  SMTP_PASSWORD=votre_password_mailtrap")
-    println("  FROM_EMAIL=test@example.com (optionnel pour Mailtrap)")
-    println("")
-    println("Configuration Mailtrap (par défaut) :")
-    println("  1. Créez un compte sur https://mailtrap.io")
-    println("  2. Obtenez vos credentials depuis votre inbox Mailtrap")
-    println("  3. Utilisez le username et password fournis par Mailtrap")
-    println("  4. Le serveur SMTP utilisé sera : sandbox.smtp.mailtrap.io:2525")
-    println("")
-    println("Pour Gmail (@gmail.com) :")
-    println("  - Activez la 2FA et générez un mot de passe d'application")
-    println("Pour Outlook (@outlook.com/@hotmail.com) :")
-    println("  - Utilisez votre mot de passe normal ou mot de passe d'application")
-  }
-  
-  /**
-   * Vérifie si toutes les variables d'environnement sont configurées
+   * Check if email credentials are configured
    */
   def areCredentialsConfigured(): Boolean = {
     sys.env.contains("SMTP_USER") && sys.env.contains("SMTP_PASSWORD")
+  }
+  
+  /**
+   * Print required environment variables (without exposing values)
+   */
+  def printRequiredEnvVars(): Unit = {
+    println("Required environment variables for email sending:")
+    println("  SMTP_USER=your_mailtrap_username")
+    println("  SMTP_PASSWORD=your_mailtrap_password")
+    println("  FROM_EMAIL=test@example.com (optional for Mailtrap)")
+    println("")
+    println("Mailtrap configuration (default):")
+    println("  1. Create account at https://mailtrap.io")
+    println("  2. Get credentials from your Mailtrap inbox")
+    println("  3. Use the username and password provided by Mailtrap")
+    println("  4. SMTP server used: sandbox.smtp.mailtrap.io:587")
+    println("")
+    println("For Gmail (@gmail.com):")
+    println("  - Enable 2FA and generate an app password")
+    println("For Outlook (@outlook.com/@hotmail.com):")
+    println("  - Use regular password or app password")
   }
 }

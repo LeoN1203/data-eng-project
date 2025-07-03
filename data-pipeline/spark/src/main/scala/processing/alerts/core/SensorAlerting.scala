@@ -13,32 +13,98 @@ object SensorAlerting {
    * Checks sensor data for values outside defined thresholds.
    */
   def checkForAnomalies(data: IoTSensorData, config: SensorAlertConfig): List[Anomaly] = {
-    val temperatureAnomalies =
-      if (data.temperature > config.maxTemperature || data.temperature < config.minTemperature)
-        List(Anomaly(data.deviceId, "Temperature", f"${data.temperature}%.2f C", data.timestamp, data.location))
-      else Nil
+    val anomalies = scala.collection.mutable.ListBuffer[Anomaly]()
 
-    val humidityAnomalies =
-      if (data.humidity > config.maxHumidity || data.humidity < config.minHumidity)
-        List(Anomaly(data.deviceId, "Humidity", f"${data.humidity}%.2f %%", data.timestamp, data.location))
-      else Nil
+    // Check temperature
+    data.temperature.foreach { temp =>
+      val (min, max) = config.temperatureRange
+      if (temp < min || temp > max) {
+        anomalies += Anomaly(
+          data.deviceId, 
+          "Temperature", 
+          f"$temp%.1f°C", 
+          s"${min}°C to ${max}°C",
+          data.timestamp, 
+          data.location
+        )
+      }
+    }
 
-    val pressureAnomalies =
-      if (data.pressure > config.maxPressure || data.pressure < config.minPressure)
-        List(Anomaly(data.deviceId, "Pressure", f"${data.pressure}%.2f hPa", data.timestamp, data.location))
-      else Nil
+    // Check humidity
+    data.humidity.foreach { humid =>
+      val (min, max) = config.humidityRange
+      if (humid < min || humid > max) {
+        anomalies += Anomaly(
+          data.deviceId, 
+          "Humidity", 
+          f"$humid%.1f%%", 
+          s"${min}% to ${max}%",
+          data.timestamp, 
+          data.location
+        )
+      }
+    }
 
-    val acidityAnomalies =
-      if (data.acidity > config.maxAcidity || data.acidity < config.minAcidity)
-        List(Anomaly(data.deviceId, "Acidity", f"${data.acidity}%.2f pH", data.timestamp, data.location))
-      else Nil
+    // Check pressure
+    data.pressure.foreach { press =>
+      val (min, max) = config.pressureRange
+      if (press < min || press > max) {
+        anomalies += Anomaly(
+          data.deviceId, 
+          "Pressure", 
+          f"$press%.1f hPa", 
+          s"${min} to ${max} hPa",
+          data.timestamp, 
+          data.location
+        )
+      }
+    }
 
-    val motionAnomalies =
-      if (data.motion)
-        List(Anomaly(data.deviceId, "Motion Detected", data.motion, data.timestamp, data.location))
-      else Nil
+    // Check light
+    data.light.foreach { lightVal =>
+      val (min, max) = config.lightRange
+      if (lightVal < min || lightVal > max) {
+        anomalies += Anomaly(
+          data.deviceId, 
+          "Light", 
+          f"$lightVal%.1f lux", 
+          s"${min} to ${max} lux",
+          data.timestamp, 
+          data.location
+        )
+      }
+    }
 
-    temperatureAnomalies ++ humidityAnomalies ++ pressureAnomalies ++ acidityAnomalies ++ motionAnomalies
+    // Check acidity
+    data.acidity.foreach { acid =>
+      val (min, max) = config.acidityRange
+      if (acid < min || acid > max) {
+        anomalies += Anomaly(
+          data.deviceId, 
+          "Acidity", 
+          f"$acid%.1f pH", 
+          s"${min} to ${max} pH",
+          data.timestamp, 
+          data.location
+        )
+      }
+    }
+
+    // Check battery level
+    data.metadata.batteryLevel.foreach { battery =>
+      if (battery < config.batteryLowThreshold) {
+        anomalies += Anomaly(
+          data.deviceId, 
+          "Low Battery", 
+          s"$battery%", 
+          s"> ${config.batteryLowThreshold}%",
+          data.timestamp, 
+          data.location
+        )
+      }
+    }
+
+    anomalies.toList
   }
 
   /**
@@ -48,26 +114,30 @@ object SensorAlerting {
     if (anomalies.isEmpty) {
       None
     } else {
-      val subject = s"EMERGENCY: ${anomalies.size} Sensor Anomalies Detected"
-      val formattedAnomalies = anomalies.map { a =>
-        val formattedTimestamp = Instant.ofEpochMilli(a.timestamp)
-          .atZone(ZoneId.systemDefault())
-          .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        s"- Device '${a.deviceId}' at '${a.location}' reported ${a.anomalyType} with value ${a.value} at $formattedTimestamp."
+      val deviceId = anomalies.head.deviceId
+      val location = anomalies.head.location
+      val subject = s"[IoT Alert] Anomaly detected in $deviceId at $location"
+      
+      val formattedTimestamp = Instant.ofEpochMilli(anomalies.head.timestamp)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+
+      val anomalyList = anomalies.map { a =>
+        s"- ${a.anomalyType}: ${a.value} (threshold: ${a.threshold})"
       }.mkString("\n")
 
       val body =
-        s"""
-           |Dear System Administrator,
+        s"""Device: $deviceId
+           |Location: $location
+           |Timestamp: $formattedTimestamp
            |
-           |An emergency alert has been triggered due to one or more sensor anomalies.
-           |Please investigate the following events immediately:
+           |Anomalies detected:
+           |$anomalyList
            |
-           |$formattedAnomalies
+           |Please investigate this issue immediately.
            |
-           |Regards,
-           |IoT Monitoring System
-           |""".stripMargin
+           |---
+           |IoT Monitoring System""".stripMargin
 
       Some(Email(recipientEmail, subject, body))
     }

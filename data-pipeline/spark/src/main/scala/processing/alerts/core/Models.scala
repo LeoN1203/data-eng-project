@@ -1,34 +1,38 @@
 package scala.processing.alerts.core
 
 /**
- * Modèles de données pour le système d'alertes de capteurs IoT
+ * Data models for the IoT sensor alerting system
  */
 
-// This case class should match the one defined in your Producer.
-// It's placed here to make the alerting module self-contained.
+// Sensor metadata with optional fields
+case class SensorMetadata(
+  batteryLevel: Option[Int],
+  signalStrength: Option[Int],
+  firmwareVersion: Option[String]
+)
+
+// IoT sensor data case class matching the JSON schema
 case class IoTSensorData(
   deviceId: String,
-  temperature: Double,
-  humidity: Double,
-  pressure: Double,
-  motion: Boolean,
-  light: Double,
-  acidity: Double,
+  temperature: Option[Double],
+  humidity: Option[Double],
+  pressure: Option[Double],
+  motion: Option[Boolean],
+  light: Option[Double],
+  acidity: Option[Double],
   location: String,
   timestamp: Long,
-  metadata: Map[String, Any]
+  metadata: SensorMetadata
 )
 
 /** Configuration for sensor alert thresholds. */
 case class SensorAlertConfig(
-  maxTemperature: Double = 30.0,
-  minTemperature: Double = 5.0,
-  maxHumidity: Double = 80.0,
-  minHumidity: Double = 20.0,
-  maxPressure: Double = 1030.0,
-  minPressure: Double = 990.0,
-  maxAcidity: Double = 8.5,
-  minAcidity: Double = 5.5
+  temperatureRange: (Double, Double) = (-10.0, 80.0),
+  humidityRange: (Double, Double) = (0.0, 100.0),
+  pressureRange: (Double, Double) = (900.0, 1100.0),
+  lightRange: (Double, Double) = (0.0, 1000.0),
+  acidityRange: (Double, Double) = (4.0, 10.0),
+  batteryLowThreshold: Int = 20
 )
 
 /** Represents a single detected anomaly from sensor data. */
@@ -36,6 +40,7 @@ case class Anomaly(
   deviceId: String,
   anomalyType: String,
   value: Any,
+  threshold: String,
   timestamp: Long,
   location: String
 )
