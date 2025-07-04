@@ -24,6 +24,7 @@ object KafkaS3DataLakePipeline {
         "spark.hadoop.fs.s3a.aws.credentials.provider",
         "com.amazonaws.auth.DefaultAWSCredentialsProviderChain"
       )
+      .config("spark.jars.ivy", "/tmp/.ivy2")
       .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
