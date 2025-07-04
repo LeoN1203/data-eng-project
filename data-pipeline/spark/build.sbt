@@ -7,7 +7,7 @@ ThisBuild / organization := "scala"
 lazy val root = (project in file("."))
   .enablePlugins(JavaAppPackaging)
   .settings(
-    name := "data-pipeline-scala",
+    name := "data-pipeline-ingestion",
 
     // Compiler options for better code quality and performance
     scalacOptions ++= Seq(
@@ -28,7 +28,9 @@ lazy val root = (project in file("."))
       "-Xmx2G", // Maximum heap size
       "-XX:+UseG1GC", // Use G1 garbage collector
       "-XX:+UseStringDeduplication" // Reduce memory usage
-    ),    // Dependency management
+    ),
+
+    // Dependency management
     libraryDependencies ++= Seq(
       // Apache Spark dependencies
       "org.apache.spark" %% "spark-core" % "3.5.0",
@@ -45,17 +47,10 @@ lazy val root = (project in file("."))
       "org.apache.kafka" % "kafka-clients" % "3.6.0",
       "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
 
-      // Akka for actor-based concurrency (useful for IoT device simulation)
-      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
-      "com.typesafe.akka" %% "akka-stream" % "2.8.5",
-
       // JSON processing
       "io.circe" %% "circe-core" % "0.14.6",
       "io.circe" %% "circe-generic" % "0.14.6",
       "io.circe" %% "circe-parser" % "0.14.6",
-
-      // Add the Courrier dependency for sending emails
-      "com.github.daddykotex" %% "courier" % "3.0.1",
 
       // Configuration management
       "com.typesafe" % "config" % "1.4.3",
@@ -67,7 +62,6 @@ lazy val root = (project in file("."))
       // Testing dependencies
       "org.scalatest" %% "scalatest" % "3.2.17" % Test,
       "org.scalatestplus" %% "mockito-4-6" % "3.2.15.0" % Test,
-      "com.typesafe.akka" %% "akka-testkit" % "2.8.5" % Test,
       "io.github.embeddedkafka" %% "embedded-kafka" % "3.6.0" % Test,
       "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.40.15" % Test,
       "com.dimafeng" %% "testcontainers-scala-kafka" % "0.40.15" % Test,

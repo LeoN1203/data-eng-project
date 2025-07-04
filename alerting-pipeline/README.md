@@ -89,10 +89,9 @@ Use this for development when you want to run the Spark pipeline locally but use
    sbt "runMain processing.KafkaAlertingPipeline"
    ```
 
-3. **Send test messages:**
+3. **Send test messages (use the robust test script):**
    ```bash
-   # Use the robust test script from the project root
-   ../test-alerting-pipeline-robust.sh
+   ./test-alerting-pipeline-robust.sh
    ```
 
 4. **Stop Kafka services:**
@@ -104,6 +103,21 @@ Use this for development when you want to run the Spark pipeline locally but use
    ```bash
    ./test-compose.sh build
    ```
+
+### Option 3: Robust Testing Script
+
+For comprehensive automated testing with detailed validation:
+
+```bash
+./test-alerting-pipeline-robust.sh
+```
+
+This script:
+- Automatically starts Kafka containers
+- Runs the pipeline locally  
+- Sends test messages with schema validation
+- Monitors anomaly detection and alerting
+- Provides detailed test results and validation
 
 ## Configuration
 
