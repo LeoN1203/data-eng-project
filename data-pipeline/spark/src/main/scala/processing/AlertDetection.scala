@@ -1,7 +1,7 @@
-package scala.processing
+package processing
 
-import scala.processing.alerts.core._
-import scala.processing.alerts.email._
+import processing.alerts.core._
+import processing.alerts.email._
 
 /**
  * Main alert detection module for the data pipeline.

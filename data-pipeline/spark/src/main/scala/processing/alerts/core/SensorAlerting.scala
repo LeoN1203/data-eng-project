@@ -1,4 +1,4 @@
-package scala.processing.alerts.core
+package processing.alerts.core
 
 import java.time.{Instant, ZoneId}
 import java.time.format.DateTimeFormatter

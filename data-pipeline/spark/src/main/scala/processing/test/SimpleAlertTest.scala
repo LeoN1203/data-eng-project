@@ -1,7 +1,7 @@
-package scala.processing.test
+package processing.test
 
-import scala.processing.alerts.core._
-import scala.processing.alerts.email._
+import processing.alerts.core._
+import processing.alerts.email._
 
 /**
  * Simple test to verify the alerting system works correctly

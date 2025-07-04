@@ -1,6 +1,6 @@
-package scala.processing.alerts.email
+package processing.alerts.email
 
-import scala.processing.alerts.core.Email
+import processing.alerts.core.Email
 
 /**
  * A console-based implementation of EmailGateway for development/testing.

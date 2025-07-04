@@ -1,13 +1,13 @@
-package scala.processing
+package processing
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.{OutputMode, Trigger}
 import org.apache.spark.sql.types._
 import java.util.concurrent.TimeUnit
-import scala.processing.alerts.core._
-import scala.processing.alerts.email._
-import scala.processing.config.PipelineConfig
+import processing.alerts.core._
+import processing.alerts.email._
+import processing.config.PipelineConfig
 
 /**
  * Kafka-based real-time alerting pipeline using Spark Structured Streaming.

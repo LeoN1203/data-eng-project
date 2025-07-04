@@ -1,4 +1,4 @@
-package scala.processing.alerts.core
+package processing.alerts.core
 
 /**
  * Data models for the IoT sensor alerting system

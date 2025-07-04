@@ -67,6 +67,9 @@ lazy val root = (project in file("."))
       "org.scalatest" %% "scalatest" % "3.2.17" % Test,
       "org.scalatestplus" %% "mockito-4-6" % "3.2.15.0" % Test,
       "com.typesafe.akka" %% "akka-testkit" % "2.8.5" % Test,
+      "io.github.embeddedkafka" %% "embedded-kafka" % "3.6.0" % Test,
+      "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.40.15" % Test,
+      "com.dimafeng" %% "testcontainers-scala-kafka" % "0.40.15" % Test,
 
       // Metrics and monitoring
       "io.micrometer" % "micrometer-core" % "1.12.0",

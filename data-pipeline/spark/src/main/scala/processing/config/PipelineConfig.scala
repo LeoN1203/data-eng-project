@@ -1,7 +1,6 @@
-package scala.processing.config
+package processing.config
 
 import com.typesafe.config.{Config, ConfigFactory}
-import scala.util.Try
 
 /**
  * Configuration loader for the Kafka alerting pipeline.
@@ -125,23 +124,10 @@ object PipelineConfig {
   }
   
   /**
-   * Convert pipeline email config to alerting email config format
-   */
-  def toAlertingEmailConfig(emailConfig: EmailConfig): scala.processing.alerts.email.EmailConfig = {
-    scala.processing.alerts.email.EmailConfig(
-      smtpHost = emailConfig.smtpHost,
-      smtpPort = emailConfig.smtpPort,
-      smtpUser = emailConfig.smtpUser,
-      smtpPassword = emailConfig.smtpPassword,
-      fromAddress = emailConfig.fromAddress
-    )
-  }
-  
-  /**
    * Convert pipeline alerting thresholds to alerting config format
    */
-  def toSensorAlertConfig(thresholds: AlertingThresholds): scala.processing.alerts.core.SensorAlertConfig = {
-    scala.processing.alerts.core.SensorAlertConfig(
+  def toSensorAlertConfig(thresholds: AlertingThresholds): processing.alerts.core.SensorAlertConfig = {
+    processing.alerts.core.SensorAlertConfig(
       temperatureRange = (thresholds.temperatureMin, thresholds.temperatureMax),
       humidityRange = (thresholds.humidityMin, thresholds.humidityMax),
       pressureRange = (thresholds.pressureMin, thresholds.pressureMax),

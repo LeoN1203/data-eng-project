@@ -1,8 +1,8 @@
-package scala.processing.examples
+package processing.examples
 
-import scala.processing.KafkaAlertingPipeline
-import scala.processing.alerts.core._
-import scala.processing.alerts.email._
+import processing.KafkaAlertingPipeline
+import processing.alerts.core._
+import processing.alerts.email._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.serialization.StringSerializer
 import java.util.Properties
