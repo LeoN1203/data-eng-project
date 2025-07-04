@@ -185,6 +185,10 @@ class IoTDataProducer(topicName: String) {
 
 object IoTDataProducer {
   def main(args: Array[String]): Unit = {
+    println(
+      "Starting IoT Data Producer\n" +
+        "This will generate synthetic sensor data and send it to Kafka topic 'iot-sensor-data'"
+    )
     val producer = new IoTDataProducer("iot-sensor-data")
 
     // Add shutdown hook for graceful cleanup
@@ -194,7 +198,7 @@ object IoTDataProducer {
 
     try {
       // Generate data for 30 seconds at 5 messages per second
-      producer.startDataGeneration(5, 30)
+      producer.startDataGeneration(5, 10000)
     } finally {
       producer.close()
     }

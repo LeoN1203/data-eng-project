@@ -31,7 +31,7 @@ object KafkaS3DataLakePipeline {
 
     // Configuration parameters
     val kafkaBootstrapServers =
-      "localhost:9092" // Update with your Kafka brokers
+      "kafka:9093" // Update with your Kafka brokers
     val kafkaTopic = "iot-sensor-data" // Update with your topic name
     val s3BucketPath =
       "s3://inde-aws-datalake/raw/" // Update with your S3 bucket

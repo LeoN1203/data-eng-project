@@ -12,7 +12,9 @@ lazy val root = (project in file("."))
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(
     name := "data-pipeline-scala",
-
+    mainClass in assembly := Some(
+      "scala.IoTDataProducer" // Main class for the application
+    ), // Main class for the application
     // Compiler options for better code quality and performance
     scalacOptions ++= Seq(
       "-encoding",
