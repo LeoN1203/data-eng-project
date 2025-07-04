@@ -1,0 +1,108 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper-iot
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka-iot
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "9092:9092"
+    networks:
+      - iot-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --list --bootstrap-server localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-setup-iot
+    depends_on:
+      - kafka
+    networks:
+      - iot-network
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...'
+        while ! kafka-topics --list --bootstrap-server kafka:29092 &>/dev/null; do
+          sleep 1
+        done
+        echo 'Creating topic: iot-sensor-data'
+        kafka-topics --create --if-not-exists --topic iot-sensor-data --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1
+        echo 'Topic created successfully'
+      "
+    restart: "no"
+
+  iot-alerting-pipeline:
+    image: iot-alerting-pipeline:latest
+    container_name: iot-alerting-consumer
+    depends_on:
+      - kafka
+    environment:
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: iot-sensor-data
+      KAFKA_CONSUMER_GROUP_ID: iot-alerting-consumer-compose
+      KAFKA_STARTING_OFFSETS: earliest
+      
+      # Spark Configuration
+      SPARK_APP_NAME: IoT-Kafka-Alerting-Pipeline-Compose
+      SPARK_CHECKPOINT_LOCATION: /tmp/kafka-alerting-checkpoints/
+      SPARK_PROCESSING_TIME_SECONDS: 5
+      SPARK_LOG_LEVEL: WARN
+      
+      # Alerting Configuration
+      ALERT_RECIPIENT_EMAIL: admin@company.com
+      
+      # SMTP Configuration (override with your credentials)
+      SMTP_HOST: ${SMTP_HOST:-sandbox.smtp.mailtrap.io}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM:-iot-alerts@company.com}
+      EMAIL_SUBJECT_PREFIX: "[IoT Alert - Compose]"
+    networks:
+      - iot-network
+    restart: unless-stopped
+    volumes:
+      - iot-checkpoints:/tmp/kafka-alerting-checkpoints
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'processing.KafkaAlertingPipeline' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  iot-network:
+    driver: bridge
+
+volumes:
+  iot-checkpoints:
+    driver: local

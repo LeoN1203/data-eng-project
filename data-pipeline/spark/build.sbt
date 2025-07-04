@@ -5,6 +5,7 @@ ThisBuild / organization := "scala"
 
 // Project definition
 lazy val root = (project in file("."))
+  .enablePlugins(JavaAppPackaging)
   .settings(
     name := "data-pipeline-scala",
 
