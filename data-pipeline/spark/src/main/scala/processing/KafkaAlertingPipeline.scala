@@ -12,7 +12,7 @@ import processing.config.PipelineConfig
 /**
  * Kafka-based real-time alerting pipeline using Spark Structured Streaming.
  * Consumes IoT sensor data from Kafka and sends email alerts for detected anomalies.
- * Integrates the AlertDetection module with streaming data processing.
+ * Integrates the SensorAlerting module with streaming data processing.
  */
 object KafkaAlertingPipeline {
 
@@ -25,6 +25,7 @@ object KafkaAlertingPipeline {
     val spark = SparkSession
       .builder()
       .appName(pipelineConfig.spark.appName)
+      .master("local[*]")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
       .getOrCreate()
@@ -48,6 +49,13 @@ object KafkaAlertingPipeline {
     }
 
     try {
+      println("=== IoT Alerting Pipeline Starting ===")
+      println(s"Kafka servers: ${pipelineConfig.kafka.bootstrapServers}")
+      println(s"Kafka topic: ${pipelineConfig.kafka.topic}")
+      println(s"Consumer group: ${pipelineConfig.kafka.consumerGroupId}")
+      println(s"Starting offsets: ${pipelineConfig.kafka.startingOffsets}")
+      println(s"Alert recipient: ${pipelineConfig.alerting.recipientEmail}")
+      
       // Read from Kafka stream
       val kafkaStream = readFromKafka(
         spark, 
@@ -56,33 +64,33 @@ object KafkaAlertingPipeline {
         pipelineConfig.kafka.consumerGroupId,
         pipelineConfig.kafka.startingOffsets
       )
+      
+      println("Kafka stream created successfully")
 
-      // Parse and process the data with alerting
-      val processedStream = processIoTDataWithAlerting(
+      // Log any invalid messages that don't match the expected schema
+      try {
+        logInvalidMessages(kafkaStream)
+      } catch {
+        case e: Exception =>
+          println(s"Warning: Could not validate message schemas: ${e.getMessage}")
+      }
+
+      // Start the alerting pipeline
+      val alertingQuery = startAlertingPipeline(
         spark, 
         kafkaStream, 
         pipelineConfig.alerting.recipientEmail, 
         emailGateway,
-        PipelineConfig.toSensorAlertConfig(pipelineConfig.alerting.thresholds)
+        PipelineConfig.toSensorAlertConfig(pipelineConfig.alerting.thresholds),
+        pipelineConfig.spark.checkpointLocation + "/alerting",
+        pipelineConfig.spark.processingTimeSeconds
       )
 
-      // Start the streaming query
-      val query = processedStream.writeStream
-        .format("console")
-        .outputMode(OutputMode.Append())
-        .option("checkpointLocation", pipelineConfig.spark.checkpointLocation)
-        .option("truncate", "false")
-        .trigger(Trigger.ProcessingTime(pipelineConfig.spark.processingTimeSeconds, TimeUnit.SECONDS))
-        .queryName("iot-alerting-pipeline")
-        .start()
-
       println("=== IoT Alerting Pipeline Started ===")
-      println(s"Consuming from Kafka topic: ${pipelineConfig.kafka.topic}")
-      println(s"Sending alerts to: ${pipelineConfig.alerting.recipientEmail}")
       println("Press Ctrl+C to stop...")
 
       // Keep the application running
-      query.awaitTermination()
+      alertingQuery.awaitTermination()
 
     } catch {
       case e: Exception =>
@@ -103,6 +111,12 @@ object KafkaAlertingPipeline {
       consumerGroupId: String,
       startingOffsets: String
   ): DataFrame = {
+    println(s"Creating Kafka stream with:")
+    println(s"  Bootstrap servers: $bootstrapServers")
+    println(s"  Topic: $topic")
+    println(s"  Consumer group: $consumerGroupId")
+    println(s"  Starting offsets: $startingOffsets")
+    
     spark.readStream
       .format("kafka")
       .option("kafka.bootstrap.servers", bootstrapServers)
@@ -114,16 +128,18 @@ object KafkaAlertingPipeline {
   }
 
   /**
-   * Process IoT sensor data and trigger alerts for anomalies.
-   * Parses JSON messages, detects anomalies, and sends email notifications.
+   * Start the alerting pipeline that processes IoT sensor data and triggers alerts.
+   * Returns a StreamingQuery that can be awaited for termination.
    */
-  def processIoTDataWithAlerting(
+  def startAlertingPipeline(
       spark: SparkSession,
       kafkaStream: DataFrame,
       recipientEmail: String,
       emailGateway: EmailGateway,
-      alertConfig: SensorAlertConfig
-  ): DataFrame = {
+      alertConfig: SensorAlertConfig,
+      checkpointLocation: String,
+      processingTimeSeconds: Int
+  ): org.apache.spark.sql.streaming.StreamingQuery = {
     import spark.implicits._
 
     // Define schema for IoT sensor data
@@ -156,6 +172,8 @@ object KafkaAlertingPipeline {
       )
       // Parse JSON data with error handling
       .withColumn("parsed_data", from_json(col("raw_data"), iotSchema))
+      // Log malformed/filtered JSON for debugging
+      .withColumn("is_valid_json", col("parsed_data").isNotNull)
       .filter(col("parsed_data").isNotNull) // Filter out malformed JSON
       // Extract fields from parsed JSON
       .select(
@@ -182,17 +200,19 @@ object KafkaAlertingPipeline {
       // Filter out invalid records
       .filter(col("deviceId").isNotNull && col("sensor_timestamp").isNotNull)
 
-    // Apply alerting logic using foreachBatch for side effects
+    println("Starting Kafka stream processing with foreachBatch...")
+
+    // Start the streaming query with foreachBatch for alerting
     parsedStream
       .writeStream
       .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
         processBatchWithAlerting(batchDF, batchId, recipientEmail, emailGateway, alertConfig)
       }
       .outputMode(OutputMode.Update())
+      .option("checkpointLocation", checkpointLocation)
+      .trigger(Trigger.ProcessingTime(processingTimeSeconds, TimeUnit.SECONDS))
+      .queryName("iot-alerting-pipeline")
       .start()
-
-    // Return the parsed stream for monitoring/logging
-    parsedStream
   }
 
   /**
@@ -208,7 +228,20 @@ object KafkaAlertingPipeline {
   ): Unit = {
     import batchDF.sparkSession.implicits._
     
-    println(s"Processing batch $batchId with ${batchDF.count()} records...")
+    val recordCount = batchDF.count()
+    println(s"=== Processing batch $batchId with $recordCount records ===")
+    
+    if (recordCount == 0) {
+      println("Batch is empty, skipping processing")
+      println("Note: If messages were sent but batch is empty, check:")
+      println("  - Message schema matches expected format (deviceId, location fields)")
+      println("  - JSON is valid and properly formatted") 
+      return
+    }
+
+    // Show some sample data for debugging
+    println("Sample records from batch:")
+    batchDF.select("deviceId", "temperature", "humidity", "pressure", "location").show(5, truncate = false)
 
     // Convert DataFrame rows to IoTSensorData case classes
     val sensorDataList = batchDF.collect().toList.flatMap { row =>
@@ -229,13 +262,17 @@ object KafkaAlertingPipeline {
             firmwareVersion = Option(row.getAs[String]("firmware_version"))
           )
         )
+        println(s"Parsed sensor data for device ${sensorData.deviceId}: temp=${sensorData.temperature}, humid=${sensorData.humidity}")
         Some(sensorData)
       } catch {
         case e: Exception =>
           println(s"Error parsing sensor data from row: ${e.getMessage}")
+          e.printStackTrace()
           None
       }
     }
+
+    println(s"Successfully parsed ${sensorDataList.size} sensor records")
 
     // Process each sensor reading for anomalies
     var totalAnomalies = 0
@@ -243,33 +280,39 @@ object KafkaAlertingPipeline {
 
     sensorDataList.foreach { sensorData =>
       try {
-        // Use AlertDetection pure functions to detect anomalies and format alerts
-        val alertEmailOpt = AlertDetection.processToAlert(
-          sensorData, 
-          alertConfig,
-          recipientEmail
-        )
-
-        // Send email if alert detected
-        alertEmailOpt.foreach { email =>
-          AlertDetection.sendAlert(email, emailGateway)
-          emailsSent += 1
-          println(s"Alert sent for device ${sensorData.deviceId}: ${email.subject}")
+        println(s"Checking anomalies for device ${sensorData.deviceId}...")
+        
+        // Use SensorAlerting pure functions to detect anomalies and format alerts
+        val anomalies = SensorAlerting.checkForAnomalies(sensorData, alertConfig)
+        
+        if (anomalies.nonEmpty) {
+          println(s"ANOMALIES DETECTED for device ${sensorData.deviceId}: ${anomalies.map(_.anomalyType).mkString(", ")}")
+          
+          val alertEmailOpt = SensorAlerting.formatEmergencyAlert(anomalies, recipientEmail)
+          
+          // Send email if alert detected
+          alertEmailOpt.foreach { email =>
+            println(s"Sending alert email: ${email.subject}")
+            emailGateway.send(email)
+            emailsSent += 1
+            println(s"✓ Alert sent for device ${sensorData.deviceId}")
+          }
+        } else {
+          println(s"No anomalies detected for device ${sensorData.deviceId}")
         }
 
         // Count anomalies for statistics
-        val anomalies = AlertDetection.detectAnomalies(sensorData)
         totalAnomalies += anomalies.size
 
       } catch {
         case e: Exception =>
           println(s"Error processing alerts for device ${sensorData.deviceId}: ${e.getMessage}")
+          e.printStackTrace()
       }
     }
 
-    if (totalAnomalies > 0) {
-      println(s"Batch $batchId: Detected $totalAnomalies anomalies, sent $emailsSent alerts")
-    }
+    println(s"=== Batch $batchId Summary: $totalAnomalies anomalies detected, $emailsSent alerts sent ===")
+    println()
   }
 
   /**
@@ -308,7 +351,7 @@ object KafkaAlertingPipeline {
           metadata = SensorMetadata(None, None, None)
         )
         
-        val anomalies = AlertDetection.detectAnomalies(sensorData)
+        val anomalies = SensorAlerting.checkForAnomalies(sensorData, SensorAlertConfig())
         anomalies.map(_.anomalyType).mkString(", ")
       } catch {
         case _: Exception => ""
@@ -356,5 +399,41 @@ object KafkaAlertingPipeline {
       ))
       .filter(col("anomalies") =!= "")
       .withColumn("alert_timestamp", current_timestamp())
+  }
+
+  /**
+   * Log messages that failed to parse due to schema mismatch.
+   * This helps debug cases where messages are silently filtered out.
+   */
+  def logInvalidMessages(kafkaStream: DataFrame): Unit = {
+    // Log a sample of invalid/malformed messages for debugging
+    val invalidMessages = kafkaStream
+      .select(
+        col("value").cast("string").as("raw_data"),
+        col("topic"),
+        col("partition"),
+        col("offset")
+      )
+      .withColumn("parsed_data", from_json(col("raw_data"), StructType(Seq(
+        StructField("deviceId", StringType, nullable = false),
+        StructField("device_id", StringType, nullable = true), // Common mistake
+        StructField("temperature", DoubleType, nullable = true),
+        StructField("humidity", DoubleType, nullable = true),
+        StructField("location", StringType, nullable = true)
+      ))))
+      .filter(col("parsed_data").isNull || col("parsed_data.deviceId").isNull || col("parsed_data.location").isNull)
+      .limit(10)
+
+    try {
+      val invalidCount = invalidMessages.count()
+      if (invalidCount > 0) {
+        println(s"Warning: $invalidCount messages failed schema validation. Sample invalid messages:")
+        invalidMessages.show(5, truncate = false)
+        println("Common issues: missing 'deviceId', 'location' fields, or using 'device_id' instead of 'deviceId'")
+      }
+    } catch {
+      case e: Exception =>
+        println(s"Could not check for invalid messages: ${e.getMessage}")
+    }
   }
 }
