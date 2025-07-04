@@ -21,7 +21,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 USER 1001
 
-COPY ../scripts/docker-entrypoint.sh /opt/spark-apps/docker-entrypoint.sh
+COPY docker-entrypoint.sh /opt/spark-apps/docker-entrypoint.sh
 USER root
 RUN chmod +x /opt/spark-apps/docker-entrypoint.sh
 USER 1001

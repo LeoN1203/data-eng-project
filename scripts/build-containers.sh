@@ -60,6 +60,27 @@ build_container() {
     fi
 }
 
+# Function to build unified container
+build_unified_container() {
+    log "Building unified container..."
+    
+    # Build JAR first
+    build_jar
+    
+    # Copy docker-entrypoint.sh to spark directory for Docker build context
+    log "Copying docker-entrypoint.sh to spark directory..."
+    cp scripts/docker-entrypoint.sh data-pipeline/spark/
+    
+    # Build container
+    log "Building unified container..."
+    if docker build -f docker/Dockerfile.unified -t data-pipeline-unified:latest data-pipeline/spark/; then
+        log "unified container built successfully: data-pipeline-unified:latest"
+    else
+        log_error "Failed to build unified container"
+        return 1
+    fi
+}
+
 show_usage() {
     echo "Usage: $0 [bronze|silver|gold|grafana|unified|all]"
     echo ""
