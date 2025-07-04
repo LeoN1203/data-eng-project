@@ -12,7 +12,7 @@
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/logs"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 DATE_PARAM=$(date '+%Y-%m-%d')
@@ -52,14 +52,14 @@ check_prerequisites() {
     fi
     
     # Check if Spark container is running
-    if ! docker compose ps spark-master | grep -q "running"; then
+    if ! docker compose -f "$PROJECT_ROOT/docker/docker-compose.yml" ps spark-master | grep -q "running"; then
         log "⚠️  WARNING: Spark master container is not running. Attempting to start..."
-        cd "$PROJECT_ROOT" && docker compose up -d spark-master
+        cd "$PROJECT_ROOT" && docker compose -f docker/docker-compose.yml up -d spark-master
         sleep 10
     fi
     
     # Check if JAR file exists in container
-    if ! docker compose exec spark-master test -f "$JAR_PATH"; then
+    if ! docker compose -f "$PROJECT_ROOT/docker/docker-compose.yml" exec spark-master test -f "$JAR_PATH"; then
         log "⚠️  WARNING: JAR file not found in container. Rebuilding and copying..."
         build_and_copy_jar
     fi
@@ -70,13 +70,13 @@ check_prerequisites() {
 build_and_copy_jar() {
     log "🔨 Building JAR file..."
     
-    cd "$SCRIPT_DIR/spark"
+    cd "$PROJECT_ROOT/data-pipeline/spark"
     if sbt assembly; then
         log "✅ JAR build successful"
         
         # Copy JAR to Spark container
         cd "$PROJECT_ROOT"
-        if docker compose cp data-pipeline/spark/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar spark-master:/tmp/; then
+        if docker compose -f docker/docker-compose.yml cp data-pipeline/spark/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar spark-master:/tmp/; then
             log "✅ JAR copied to Spark container"
         else
             log "❌ ERROR: Failed to copy JAR to container"
@@ -92,7 +92,7 @@ run_bronze_job() {
     log "🥉 Starting Bronze Job..."
     
     cd "$PROJECT_ROOT"
-    docker compose exec spark-master bash -c "
+    docker compose -f docker/docker-compose.yml exec spark-master bash -c "
         export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID'
         export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY'
         export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION'
@@ -118,7 +118,7 @@ run_silver_job() {
     log "🥈 Starting Silver Job..."
     
     cd "$PROJECT_ROOT"
-    docker compose exec spark-master bash -c "
+    docker compose -f docker/docker-compose.yml exec spark-master bash -c "
         export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID'
         export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY'
         export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION'
@@ -144,7 +144,7 @@ run_gold_job() {
     log "🥇 Starting Gold Job..."
     
     cd "$PROJECT_ROOT"
-    docker compose exec spark-master bash -c "
+    docker compose -f docker/docker-compose.yml exec spark-master bash -c "
         export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID'
         export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY'
         export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION'

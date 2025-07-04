@@ -1,0 +1,53 @@
+FROM bitnami/spark:3.5.1
+
+# Install required packages
+USER root
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /opt/spark-apps
+
+# Copy the assembled JAR
+COPY target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar /opt/spark-apps/data-pipeline.jar
+
+# Grafana export job specific configurations
+ENV SPARK_MASTER="local[*]"
+ENV SPARK_DRIVER_MEMORY="2g"
+ENV SPARK_EXECUTOR_MEMORY="2g"
+ENV SPARK_EXECUTOR_CORES="2"
+
+# Database connectivity optimizations
+ENV SPARK_SQL_ADAPTIVE_ENABLED="true"
+ENV SPARK_SQL_ADAPTIVE_COALESCE_PARTITIONS_ENABLED="true"
+
+# PostgreSQL connection settings
+ENV POSTGRES_HOST="localhost"
+ENV POSTGRES_PORT="5432"
+ENV POSTGRES_DB="grafana_db"
+ENV POSTGRES_USER="grafana"
+ENV POSTGRES_PASSWORD="grafana"
+
+# AWS S3 and PostgreSQL packages
+ENV SPARK_PACKAGES="org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376,io.delta:delta-core_2.12:2.4.0,org.postgresql:postgresql:42.7.0"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:4040 || exit 1
+
+# Switch back to spark user
+USER 1001
+
+# Entry point for Grafana export job
+ENTRYPOINT ["spark-submit", \
+  "--class", "processing.GrafanaExportJob", \
+  "--master", "local[*]", \
+  "--driver-memory", "2g", \
+  "--executor-memory", "2g", \
+  "--packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376,io.delta:delta-core_2.12:2.4.0,org.postgresql:postgresql:42.7.0", \
+  "--conf", "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem", \
+  "--conf", "spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider", \
+  "--conf", "spark.sql.adaptive.enabled=true", \
+  "--conf", "spark.sql.adaptive.coalescePartitions.enabled=true", \
+  "--conf", "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension", \
+  "--conf", "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog", \
+  "/opt/spark-apps/data-pipeline.jar"] 

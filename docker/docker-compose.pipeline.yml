@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # Bronze Job - Raw data ingestion
+  bronze-job:
+    build:
+      context: ../data-pipeline/spark
+      dockerfile: ../../docker/Dockerfile.bronze
+    container_name: bronze-job
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
+      - PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
+    volumes:
+      - ../logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
+    profiles:
+      - bronze
+      - all
+
+  # Silver Job - Data quality and enrichment
+  silver-job:
+    build:
+      context: ../data-pipeline/spark
+      dockerfile: ../../docker/Dockerfile.silver
+    container_name: silver-job
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
+      - PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
+    volumes:
+      - ../logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
+    depends_on:
+      - bronze-job
+    profiles:
+      - silver
+      - all
+
+  # Gold Job - Analytics and reporting
+  gold-job:
+    build:
+      context: ../data-pipeline/spark
+      dockerfile: ../../docker/Dockerfile.gold
+    container_name: gold-job
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
+      - PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
+    volumes:
+      - ../logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
+    depends_on:
+      - silver-job
+    profiles:
+      - gold
+      - all
+
+  # Grafana Export Job - Export Gold data to PostgreSQL for dashboards
+  grafana-export-job:
+    build:
+      context: ../data-pipeline/spark
+      dockerfile: ../../docker/Dockerfile.grafana
+    container_name: grafana-export-job
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
+      - PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
+      - POSTGRES_HOST=${POSTGRES_HOST:-localhost}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-grafana_db}
+      - POSTGRES_USER=${POSTGRES_USER:-grafana}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-grafana}
+    volumes:
+      - ../logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
+    depends_on:
+      - gold-job
+    profiles:
+      - grafana
+      - all
+
+  # Unified Job - Can run any job based on environment variables
+  unified-job:
+    build:
+      context: ../data-pipeline/spark
+      dockerfile: ../../docker/Dockerfile.unified
+    container_name: unified-job
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
+      - SPARK_APPLICATION_MAIN_CLASS=${SPARK_APPLICATION_MAIN_CLASS:-processing.BronzeJob}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-2g}
+      - PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
+    volumes:
+      - ../logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
+    profiles:
+      - unified
+
+networks:
+  data-pipeline-network:
+    driver: bridge
+
+volumes:
+  pipeline-logs:
+    driver: local 
