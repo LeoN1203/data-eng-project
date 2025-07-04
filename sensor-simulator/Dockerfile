@@ -14,4 +14,4 @@ COPY target/scala-${SCALA_VERSION}/${JAR_NAME} ./app.jar
 # ENV KAFKA_BOOTSTRAP_SERVER=kafka:9093
 ENV TOPIC=iot-sensor-data
 
-ENTRYPOINT ["java", "-jar", "app.jar", "scala.IoTDataProducer"]
+ENTRYPOINT ["java", "-jar", "app.jar"]

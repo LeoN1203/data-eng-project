@@ -4,10 +4,11 @@ import sbt.Keys._
 
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.13.16" // Latest stable Scala 2.13
+ThisBuild / scalaVersion := "2.12.18" // Latest stable Scala 2.13
 ThisBuild / organization := "scala"
 
-val sparkVersion = "4.0.0"
+val sparkVersion =
+  "3.3.2"
 val kafkaVersion = "3.2.0"
 val hadoopVersion = "3.3.4"
 val awsVersion = "1.12.262"
@@ -47,6 +48,9 @@ lazy val root = (project in file("."))
       "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
       "org.apache.spark" %% "spark-sql" % sparkVersion % "provided",
       "org.apache.spark" %% "spark-streaming" % sparkVersion % "provided",
+      // new one
+      "org.apache.spark" %% "spark-tags" % sparkVersion,
+      "org.apache.spark" %% "spark-unsafe" % sparkVersion,
 
       // AWS S3 Support
       "org.apache.hadoop" % "hadoop-aws" % hadoopVersion,
@@ -93,10 +97,11 @@ lazy val root = (project in file("."))
 
     // Assembly plugin for creating fat JARs
     assembly / assemblyMergeStrategy := {
-      case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-      case "application.conf"            => MergeStrategy.concat
-      case "reference.conf"              => MergeStrategy.concat
-      case _                             => MergeStrategy.first
+      case PathList("META-INF", "services", xs @ _*) => MergeStrategy.first
+      case PathList("META-INF", xs @ _*)             => MergeStrategy.discard
+      case "application.conf"                        => MergeStrategy.concat
+      case "reference.conf"                          => MergeStrategy.concat
+      case _                                         => MergeStrategy.first
     },
 
     // Docker configuration for containerization

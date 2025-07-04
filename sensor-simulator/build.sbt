@@ -12,7 +12,7 @@ lazy val root = (project in file("."))
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(
     name := "data-pipeline-scala",
-    mainClass in assembly := Some(
+    assembly / mainClass := Some(
       "scala.IoTDataProducer" // Main class for the application
     ), // Main class for the application
     // Compiler options for better code quality and performance
@@ -97,33 +97,33 @@ lazy val root = (project in file("."))
   )
 
 // Additional sub-projects for modular architecture
-lazy val common = (project in file("modules/common"))
-  .settings(
-    name := "data-pipeline-common",
-    libraryDependencies ++= Seq(
-      "io.circe" %% "circe-core" % "0.14.6",
-      "io.circe" %% "circe-generic" % "0.14.6"
-    )
-  )
+// lazy val common = (project in file("modules/common"))
+//   .settings(
+//     name := "data-pipeline-common",
+//     libraryDependencies ++= Seq(
+//       "io.circe" %% "circe-core" % "0.14.6",
+//       "io.circe" %% "circe-generic" % "0.14.6"
+//     )
+//   )
 
-lazy val producers = (project in file("modules/producers"))
-  .dependsOn(common)
-  .settings(
-    name := "data-pipeline-producers",
-    libraryDependencies ++= Seq(
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
-      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    )
-  )
+// lazy val producers = (project in file("modules/producers"))
+//   .dependsOn(common)
+//   .settings(
+//     name := "data-pipeline-producers",
+//     libraryDependencies ++= Seq(
+//       "org.apache.kafka" % "kafka-clients" % "3.6.0",
+//       "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
+//       "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
+//     )
+//   )
 
-lazy val consumers = (project in file("modules/consumers"))
-  .dependsOn(common)
-  .settings(
-    name := "data-pipeline-consumers",
-    libraryDependencies ++= Seq(
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
-      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    )
-  )
+// lazy val consumers = (project in file("modules/consumers"))
+//   .dependsOn(common)
+//   .settings(
+//     name := "data-pipeline-consumers",
+//     libraryDependencies ++= Seq(
+//       "org.apache.kafka" % "kafka-clients" % "3.6.0",
+//       "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
+//       "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
+//     )
+//   )

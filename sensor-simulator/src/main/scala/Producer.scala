@@ -198,7 +198,7 @@ object IoTDataProducer {
 
     try {
       // Generate data for 30 seconds at 5 messages per second
-      producer.startDataGeneration(5, 10000)
+      producer.startDataGeneration(1, 10000)
     } finally {
       producer.close()
     }
