@@ -124,14 +124,21 @@ case "${1:-start}" in
         send_test_messages
         check_logs
         ;;
+    build)
+        log "Building Docker image..."
+        cd "$SCRIPT_DIR/spark"
+        docker build -t iot-alerting-pipeline:latest .
+        success "Docker image built successfully"
+        ;;
     *)
-        echo "Usage: $0 {start|stop|restart|logs|status|test}"
+        echo "Usage: $0 {start|stop|restart|logs|status|test|build}"
         echo "  start   - Start all services and run test"
         echo "  stop    - Stop all services"
         echo "  restart - Restart all services"
         echo "  logs    - Follow consumer logs"
         echo "  status  - Show service status"
         echo "  test    - Send test messages and check logs"
+        echo "  build   - Build the Docker image"
         exit 1
         ;;
 esac
