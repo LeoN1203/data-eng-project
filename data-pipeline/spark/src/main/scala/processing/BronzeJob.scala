@@ -54,55 +54,96 @@ object BronzeJob extends App {
   println("Starting Bronze Data Ingestion Job...")
   
   try {
-    ingestToBronze()
+    ingestToBronze(spark, "s3a://inde-aws-datalake/raw/iot-data/", "s3a://inde-aws-datalake/bronze/iot-data/")
   } catch {
     case e: Exception =>
       println(s"Error in Bronze ingestion: ${e.getMessage}")
       e.printStackTrace()
   }
 
-  private def ingestToBronze(): Unit = {
-    val rawPath = "s3a://inde-aws-datalake/raw/iot-data/"
-    val bronzePath = "s3a://inde-aws-datalake/bronze/iot-data/"
-    
+  private def ingestToBronze(
+    spark: SparkSession,
+    rawPath: String,
+    bronzePath: String
+  ): Unit = {
+    import spark.implicits._
+    import org.apache.spark.sql.functions._
+
     println(s"Reading raw data from: $rawPath")
     
-    // Check if raw data exists
-    try {
-      val rawFiles = spark.read.format("json").load(rawPath)
-      val fileCount = rawFiles.count()
-      println(s"Found $fileCount records in raw data")
-      
-      if (fileCount == 0) {
-        println("No data found in raw folder. Exiting...")
-        return
-      }
-    } catch {
-      case e: Exception =>
-        println(s"Error reading raw data: ${e.getMessage}")
-        return
-    }
-    
-    // Read raw JSON data from S3
+    // Read raw JSON data
     val rawData = spark.read
       .format("json")
       .option("multiline", "true")
       .load(rawPath)
     
+    val recordCount = rawData.count()
+    println(s"Found $recordCount records in raw data")
+    
     println("Raw data schema:")
     rawData.printSchema()
     
-    // Add Bronze layer metadata
-    val bronzeData = rawData
+    // Parse the JSON string in the value column to extract sensor data
+    val jsonSchema = StructType(Array(
+      StructField("deviceId", StringType, true),
+      StructField("temperature", DoubleType, true),
+      StructField("humidity", DoubleType, true),
+      StructField("pressure", DoubleType, true),
+      StructField("motion", BooleanType, true),
+      StructField("light", DoubleType, true),
+      StructField("acidity", DoubleType, true),
+      StructField("location", StringType, true),
+      StructField("timestamp", LongType, true),
+      StructField("metadata", StructType(Array(
+        StructField("battery_level", IntegerType, true),
+        StructField("signal_strength", IntegerType, true),
+        StructField("firmware_version", StringType, true)
+      )), true)
+    ))
+    
+    // Parse JSON from value column and extract all fields
+    val parsedData = rawData
+      .withColumn("parsed_json", from_json(col("value"), jsonSchema))
+      .select(
+        col("parsed_json.deviceId").as("deviceId"),
+        col("parsed_json.temperature").as("temperature"),
+        col("parsed_json.humidity").as("humidity"),
+        col("parsed_json.pressure").as("pressure"),
+        col("parsed_json.motion").as("motion"),
+        col("parsed_json.light").as("light"),
+        col("parsed_json.acidity").as("acidity"),
+        col("parsed_json.location").as("location"),
+        col("parsed_json.timestamp").as("timestamp"),
+        col("parsed_json.metadata.battery_level").as("battery_level"),
+        col("parsed_json.metadata.signal_strength").as("signal_strength"),
+        col("parsed_json.metadata.firmware_version").as("firmware_version"),
+        // Keep original partition columns
+        col("year").as("raw_year"),
+        col("month").as("raw_month"),
+        col("day").as("raw_day"),
+        col("hour").as("raw_hour")
+      )
+    
+    println("Parsed data schema:")
+    parsedData.printSchema()
+    
+    // Add Bronze layer metadata - align with actual IoTSensorData structure
+    val bronzeData = parsedData
       .withColumn("bronze_ingestion_time", current_timestamp())
       .withColumn("bronze_date", current_date())
-      .withColumn("year", year(current_date()))
-      .withColumn("month", month(current_date()))
-      .withColumn("day", dayofmonth(current_date()))
+      // Use sensor timestamp for partitioning to match Kafka ingestion
+      .withColumn("year", year(from_unixtime(col("timestamp") / 1000)))
+      .withColumn("month", month(from_unixtime(col("timestamp") / 1000)))
+      .withColumn("day", dayofmonth(from_unixtime(col("timestamp") / 1000)))
       .withColumn("data_source", lit("raw-s3-json"))
       .withColumn("ingestion_job", lit("bronze-batch-job-v2"))
       .withColumn("record_id", monotonically_increasing_id())
       .withColumn("processing_status", lit("ingested"))
+      // Derive deviceType from location for downstream compatibility
+      .withColumn("deviceType", 
+        when(col("location").startsWith("warehouse"), "temperature-sensor")
+        .when(col("location").startsWith("field"), "environmental-sensor")
+        .otherwise("iot-sensor"))
     
     println("Bronze data schema:")
     bronzeData.printSchema()
@@ -118,8 +159,8 @@ object BronzeJob extends App {
       .partitionBy("year", "month", "day")
       .save(bronzePath)
     
-    val recordCount = bronzeData.count()
-    println(s"✓ Bronze ingestion completed - $recordCount records written to: $bronzePath")
+    val finalRecordCount = bronzeData.count()
+    println(s"✓ Bronze ingestion completed - $finalRecordCount records written to: $bronzePath")
     
     // Show some quality metrics
     showBronzeQualityMetrics(bronzeData)
@@ -170,9 +211,10 @@ object BronzeJob extends App {
     val bronzeData = batchData
       .withColumn("bronze_ingestion_time", current_timestamp())
       .withColumn("bronze_date", current_date())
-      .withColumn("year", year(current_date()))
-      .withColumn("month", month(current_date()))
-      .withColumn("day", dayofmonth(current_date()))
+      // Use sensor timestamp for partitioning consistency
+      .withColumn("year", year(from_unixtime(col("timestamp") / 1000)))
+      .withColumn("month", month(from_unixtime(col("timestamp") / 1000)))
+      .withColumn("day", dayofmonth(from_unixtime(col("timestamp") / 1000)))
       .withColumn("data_source", lit(s"batch-$dataFormat"))
       .withColumn("ingestion_job", lit("bronze-batch-job-v1"))
 

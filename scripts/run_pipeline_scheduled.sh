@@ -51,17 +51,38 @@ check_prerequisites() {
         exit 1
     fi
     
-    # Check if Spark container is running
+    # Check if Spark Master is running
     if ! docker compose -f "$PROJECT_ROOT/docker/docker-compose.yml" ps spark-master | grep -q "running"; then
-        log "⚠️  WARNING: Spark master container is not running. Attempting to start..."
+        log "Starting Spark Master..."
         cd "$PROJECT_ROOT" && docker compose -f docker/docker-compose.yml up -d spark-master
-        sleep 10
     fi
     
     # Check if JAR file exists in container
     if ! docker compose -f "$PROJECT_ROOT/docker/docker-compose.yml" exec spark-master test -f "$JAR_PATH"; then
-        log "⚠️  WARNING: JAR file not found in container. Rebuilding and copying..."
-        build_and_copy_jar
+        log "JAR file not found in container. Building and copying..."
+        build_jar_if_needed
+        
+        # Copy JAR to container
+        log "Copying JAR file to Spark Master container..."
+        
+        # First, try to copy the JAR file to the container
+        local max_retries=3
+        local retry_count=0
+        
+        while [ $retry_count -lt $max_retries ]; do
+            if docker compose -f docker/docker-compose.yml cp data-pipeline/spark/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar spark-master:/tmp/; then
+                log "JAR file copied successfully"
+                break
+            else
+                retry_count=$((retry_count + 1))
+                log "Failed to copy JAR file (attempt $retry_count/$max_retries)"
+                if [ $retry_count -eq $max_retries ]; then
+                    error "Failed to copy JAR file after $max_retries attempts"
+                    return 1
+                fi
+                sleep 5
+            fi
+        done
     fi
     
     log "✅ Prerequisites check completed"
@@ -89,81 +110,78 @@ build_and_copy_jar() {
 }
 
 run_bronze_job() {
-    log "🥉 Starting Bronze Job..."
+    local process_date=$1
+    log "🥉 Running Bronze job for date: $process_date"
     
-    cd "$PROJECT_ROOT"
     docker compose -f docker/docker-compose.yml exec spark-master bash -c "
-        export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID'
-        export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY'
-        export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION'
-        
-        spark-submit \
-          --class processing.BronzeJob \
-          --packages $SPARK_PACKAGES \
-          $SPARK_CONFIG \
-          $JAR_PATH \
-          $DATE_PARAM
+        /opt/bitnami/spark/bin/spark-submit \
+            --class processing.BronzeJob \
+            --master spark://spark-master:7077 \
+            --deploy-mode client \
+            --executor-memory 2g \
+            --total-executor-cores 2 \
+            --conf spark.sql.adaptive.enabled=true \
+            --conf spark.sql.adaptive.coalescePartitions.enabled=true \
+            --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+            --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider \
+            --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
+            --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
+            --conf spark.hadoop.fs.s3a.endpoint.region=${AWS_DEFAULT_REGION} \
+            --conf spark.hadoop.fs.s3a.path.style.access=false \
+            --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true \
+            /tmp/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar \
+            $process_date
     "
-    
-    if [ $? -eq 0 ]; then
-        log "✅ Bronze Job completed successfully"
-        return 0
-    else
-        log "❌ Bronze Job failed"
-        return 1
-    fi
 }
 
 run_silver_job() {
-    log "🥈 Starting Silver Job..."
+    local process_date=$1
+    log "🥈 Running Silver job for date: $process_date"
     
-    cd "$PROJECT_ROOT"
     docker compose -f docker/docker-compose.yml exec spark-master bash -c "
-        export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID'
-        export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY'
-        export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION'
-        
-        spark-submit \
-          --class processing.SilverJob \
-          --packages $SPARK_PACKAGES \
-          $SPARK_CONFIG \
-          $JAR_PATH \
-          $DATE_PARAM
+        /opt/bitnami/spark/bin/spark-submit \
+            --class processing.SilverJob \
+            --master spark://spark-master:7077 \
+            --deploy-mode client \
+            --executor-memory 2g \
+            --total-executor-cores 2 \
+            --conf spark.sql.adaptive.enabled=true \
+            --conf spark.sql.adaptive.coalescePartitions.enabled=true \
+            --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+            --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider \
+            --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
+            --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
+            --conf spark.hadoop.fs.s3a.endpoint.region=${AWS_DEFAULT_REGION} \
+            --conf spark.hadoop.fs.s3a.path.style.access=false \
+            --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true \
+            /tmp/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar \
+            $process_date
     "
-    
-    if [ $? -eq 0 ]; then
-        log "✅ Silver Job completed successfully"
-        return 0
-    else
-        log "❌ Silver Job failed"
-        return 1
-    fi
 }
 
 run_gold_job() {
-    log "🥇 Starting Gold Job..."
+    local process_date=$1
+    log "🥇 Running Gold job for date: $process_date"
     
-    cd "$PROJECT_ROOT"
     docker compose -f docker/docker-compose.yml exec spark-master bash -c "
-        export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID'
-        export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY'
-        export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION'
-        
-        spark-submit \
-          --class processing.GoldJob \
-          --packages $SPARK_PACKAGES \
-          $SPARK_CONFIG \
-          $JAR_PATH \
-          $DATE_PARAM
+        /opt/bitnami/spark/bin/spark-submit \
+            --class processing.GoldJob \
+            --master spark://spark-master:7077 \
+            --deploy-mode client \
+            --executor-memory 2g \
+            --total-executor-cores 2 \
+            --conf spark.sql.adaptive.enabled=true \
+            --conf spark.sql.adaptive.coalescePartitions.enabled=true \
+            --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+            --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider \
+            --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
+            --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
+            --conf spark.hadoop.fs.s3a.endpoint.region=${AWS_DEFAULT_REGION} \
+            --conf spark.hadoop.fs.s3a.path.style.access=false \
+            --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true \
+            /tmp/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar \
+            $process_date
     "
-    
-    if [ $? -eq 0 ]; then
-        log "✅ Gold Job completed successfully"
-        return 0
-    else
-        log "❌ Gold Job failed"
-        return 1
-    fi
 }
 
 check_data_availability() {
@@ -218,7 +236,7 @@ main() {
     PIPELINE_SUCCESS=true
     
     # Run Bronze Job
-    if run_bronze_job; then
+    if run_bronze_job "$DATE_PARAM"; then
         log "🎯 Bronze tier processing completed"
     else
         log "💥 Bronze tier processing failed - stopping pipeline"
@@ -228,7 +246,7 @@ main() {
     fi
     
     # Run Silver Job (only if Bronze succeeded)
-    if run_silver_job; then
+    if run_silver_job "$DATE_PARAM"; then
         log "🎯 Silver tier processing completed"
     else
         log "💥 Silver tier processing failed - stopping pipeline"
@@ -238,7 +256,7 @@ main() {
     fi
     
     # Run Gold Job (only if Silver succeeded)
-    if run_gold_job; then
+    if run_gold_job "$DATE_PARAM"; then
         log "🎯 Gold tier processing completed"
     else
         log "💥 Gold tier processing failed"

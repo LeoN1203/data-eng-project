@@ -73,7 +73,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
       - PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
-      - POSTGRES_HOST=${POSTGRES_HOST:-localhost}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}  # Changed from localhost to postgres (container name)
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_DB=${POSTGRES_DB:-grafana_db}
       - POSTGRES_USER=${POSTGRES_USER:-grafana}

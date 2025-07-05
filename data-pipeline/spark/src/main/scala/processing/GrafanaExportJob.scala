@@ -52,7 +52,7 @@ object GrafanaExportJob {
     pgProps.setProperty("user", "grafana")
     pgProps.setProperty("password", "grafana")
     pgProps.setProperty("driver", "org.postgresql.Driver")
-    val pgUrl = "jdbc:postgresql://localhost:5432/grafana_db"
+    val pgUrl = "jdbc:postgresql://postgres:5432/grafana_db"
 
     // Process specific date range (can be parameterized)
     val exportDate = if (args.nonEmpty) args(0) else getCurrentDate()
@@ -339,7 +339,7 @@ object GrafanaExportJob {
     println("  3. ✅ device_status - Device monitoring (from device_summary)")
     
     println(f"\n🎯 Ready for Grafana! Connect to PostgreSQL:")
-    println(f"   Host: localhost:5432")
+    println(f"   Host: postgres:5432")
     println(f"   Database: grafana_db")
     println(f"   User: grafana")
     println("=" * 50)

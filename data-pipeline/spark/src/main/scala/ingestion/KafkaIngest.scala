@@ -45,7 +45,7 @@ object KafkaS3DataLakePipeline {
       "kafka:9093" // Updated to use unified docker-compose container name with internal port
     val kafkaTopic = "iot-sensor-data" // Update with your topic name
     val s3BucketPath =
-      "s3a://inde-aws-datalake/raw/" // Update with your S3 bucket
+      "s3a://inde-aws-datalake/raw/iot-data/" // Aligned with Bronze job expectations
     val checkpointLocation =
       "s3a://inde-aws-datalake/checkpoints/"
 
@@ -100,7 +100,7 @@ object KafkaS3DataLakePipeline {
   def processIoTData(kafkaStream: DataFrame): DataFrame = {
     import kafkaStream.sparkSession.implicits._
 
-    // Define schema for IoT sensor data
+    // Define schema for IoT sensor data - aligned with actual producer structure
     val iotSchema = StructType(
       Seq(
         StructField("deviceId", StringType, nullable = false),
@@ -137,7 +137,7 @@ object KafkaS3DataLakePipeline {
       )
       // Parse JSON data
       .withColumn("parsed_data", from_json(col("raw_data"), iotSchema))
-      // Extract fields from parsed JSON
+      // Extract fields from parsed JSON and keep original structure
       .select(
         col("kafka_key"),
         col("topic"),
@@ -145,7 +145,7 @@ object KafkaS3DataLakePipeline {
         col("offset"),
         col("kafka_timestamp"),
         col("parsed_data.deviceId"),
-        from_unixtime(col("parsed_data.timestamp"))
+        from_unixtime(col("parsed_data.timestamp") / 1000)
           .cast("timestamp")
           .as("sensor_timestamp"),
         col("parsed_data.temperature"),
@@ -157,7 +157,9 @@ object KafkaS3DataLakePipeline {
         col("parsed_data.location"),
         col("parsed_data.metadata.battery_level").as("battery_level"),
         col("parsed_data.metadata.signal_strength").as("signal_strength"),
-        col("parsed_data.metadata.firmware_version").as("firmware_version")
+        col("parsed_data.metadata.firmware_version").as("firmware_version"),
+        // Keep original raw data for downstream processing
+        col("raw_data").as("original_json")
       )
       // Add processing metadata
       .withColumn("processing_time", current_timestamp())
@@ -169,15 +171,24 @@ object KafkaS3DataLakePipeline {
       .filter(col("deviceId").isNotNull && col("sensor_timestamp").isNotNull)
   }
 
-  /** Write processed data to S3 Data Lake with partitioning
+  /** Write processed data to S3 Data Lake as JSON files with partitioning
     */
   def writeToS3DataLake(
       processedStream: DataFrame,
       s3Path: String,
       checkpointLocation: String
   ): Unit = {
-    processedStream.writeStream
-      .format("parquet")
+    // Create a simplified structure for JSON output
+    val jsonStream = processedStream.select(
+      col("original_json").as("value"),
+      col("year"),
+      col("month"),
+      col("day"),
+      col("hour")
+    )
+
+    jsonStream.writeStream
+      .format("json")
       .outputMode(OutputMode.Append())
       .option("checkpointLocation", checkpointLocation)
       .option("path", s3Path)
@@ -190,7 +201,7 @@ object KafkaS3DataLakePipeline {
       .trigger(
         Trigger.ProcessingTime(30, TimeUnit.SECONDS)
       ) // Process every 30 seconds
-      .queryName("iot-s3-sink")
+      .queryName("iot-s3-json-sink")
       .start()
   }
 

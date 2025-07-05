@@ -1,55 +1,55 @@
 #!/bin/bash
 
-# Data Pipeline Docker Services Startup Script
-echo "🚀 Starting Data Pipeline Services..."
+# =============================================================================
+# START SERVICES SCRIPT
+# =============================================================================
+# This script starts all the infrastructure services needed for the data pipeline:
+# - Zookeeper
+# - Kafka
+# - Spark Master
+# - Spark Worker
+# - PostgreSQL (for Grafana)
+# =============================================================================
 
-# Get the script directory and project root
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$PROJECT_ROOT"
+set -e
 
-# Check if .env file exists
-if [ ! -f .env ]; then
-    echo "⚠️  Creating .env file from .env.example..."
-    cp .env.example .env
-    echo "📝 Please edit .env file with your AWS credentials before continuing!"
-    echo "   Required variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION"
-    echo ""
-    read -p "Press Enter after updating .env file, or Ctrl+C to exit..."
-fi
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-# Start services
-echo "🐳 Starting Docker Compose services..."
-docker-compose -f docker/docker-compose.yml up -d
+echo -e "${BLUE}🚀 Starting Data Pipeline Infrastructure Services...${NC}"
 
-# Wait for services to be healthy
-echo "⏳ Waiting for services to start..."
-sleep 30
+# Start all services
+echo -e "${YELLOW}Starting services...${NC}"
+docker compose -f docker/docker-compose.yml up -d
 
-# Check service status
+# Wait a bit for services to start
+sleep 10
+
+# Check status
+echo -e "${YELLOW}Checking service status...${NC}"
+docker compose -f docker/docker-compose.yml ps
+
+# Show service information
 echo ""
-echo "📊 Service Status:"
-docker-compose -f docker/docker-compose.yml ps
-
+echo -e "${GREEN}✅ Infrastructure services started successfully!${NC}"
 echo ""
-echo "🎯 Access Points:"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📈 Spark Master UI:     http://localhost:8080"
-echo "📜 Spark History:       http://localhost:18080"
-echo "🔄 Kafka UI:            http://localhost:8090"
-echo "📓 Jupyter Lab:         http://localhost:8888"
+echo -e "${BLUE}📊 Service Access Points:${NC}"
+echo "🎯 Spark Master UI:     http://localhost:8080"
+echo "🎯 Spark Worker UI:     http://localhost:8081"
+echo "📊 Kafka:               localhost:9092"
+echo "🗄️  PostgreSQL:          localhost:5432"
+echo "   - Database: grafana_db"
+echo "   - User: grafana"
+echo "   - Password: grafana"
 echo ""
-echo "🔌 Connection Details:"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🎭 Spark Master:        spark://localhost:7077"
-echo "📨 Kafka Bootstrap:     localhost:9092"
-echo "🏗️  Zookeeper:          localhost:2181"
+echo -e "${BLUE}🔧 Useful Commands:${NC}"
+echo "📊 Check status:        docker compose -f docker/docker-compose.yml ps"
+echo "📝 View logs:           docker compose -f docker/docker-compose.yml logs -f [service-name]"
+echo "🛑 Stop services:       docker compose -f docker/docker-compose.yml down"
+echo "🗑️  Clean volumes:       docker compose -f docker/docker-compose.yml down -v"
+echo "🔄 Restart service:     docker compose -f docker/docker-compose.yml restart [service-name]"
 echo ""
-echo "💡 Useful Commands:"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📝 View logs:           docker-compose -f docker/docker-compose.yml logs -f [service-name]"
-echo "🛑 Stop services:       docker-compose -f docker/docker-compose.yml down"
-echo "🗑️  Clean volumes:       docker-compose -f docker/docker-compose.yml down -v"
-echo "🔄 Restart service:     docker-compose -f docker/docker-compose.yml restart [service-name]"
-echo ""
-echo "✅ All services are starting up! Check the URLs above in a few moments." 
+echo -e "${GREEN}🎉 Ready to run data pipeline jobs!${NC}" 

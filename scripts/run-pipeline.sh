@@ -59,14 +59,14 @@ run_job() {
     
     export PROCESS_DATE="$process_date"
     
-    if docker-compose -f docker/docker-compose.pipeline.yml --profile "$job_type" up --build --abort-on-container-exit; then
+    if docker compose -f docker/docker-compose.pipeline.yml --profile "$job_type" up --build --abort-on-container-exit; then
         success "$job_type job completed successfully"
     else
         error "$job_type job failed"
         return 1
     fi
     
-    docker-compose -f docker/docker-compose.pipeline.yml --profile "$job_type" down
+    docker compose -f docker/docker-compose.pipeline.yml --profile "$job_type" down
 }
 
 run_unified_job() {
@@ -78,14 +78,14 @@ run_unified_job() {
     export PROCESS_DATE="$process_date"
     export SPARK_APPLICATION_MAIN_CLASS="$main_class"
     
-    if docker-compose -f docker/docker-compose.pipeline.yml --profile unified up --build --abort-on-container-exit; then
+    if docker compose -f docker/docker-compose.pipeline.yml --profile unified up --build --abort-on-container-exit; then
         success "Unified job ($main_class) completed successfully"
     else
         error "Unified job ($main_class) failed"
         return 1
     fi
     
-    docker-compose -f docker/docker-compose.pipeline.yml --profile unified down
+    docker compose -f docker/docker-compose.pipeline.yml --profile unified down
 }
 
 run_complete_pipeline() {

@@ -147,7 +147,7 @@ object SilverJob {
    */
   def standardizeSensorData(df: DataFrame): DataFrame = {
     df.select(
-      // Keep Bronze metadata
+      // Processing metadata from Bronze tier
       col("bronze_ingestion_time"),
       col("bronze_date"),
       year(col("bronze_date")).as("year"),
@@ -157,17 +157,23 @@ object SilverJob {
       col("ingestion_job"),
       col("record_id"),
       
-      // Sensor data columns (direct from Bronze)
+      // Sensor data columns (aligned with IoTSensorData structure)
       col("deviceId"),
-      col("deviceType"),
+      col("deviceType"), // Now derived in Bronze layer
       col("location"),
       col("temperature"),
       col("humidity"),
       col("pressure"),
-      col("latitude"),
-      col("longitude"),
-      from_unixtime(col("timestamp")).cast("timestamp").as("sensor_timestamp"),
-      col("metadata").as("sensor_metadata")
+      col("motion"),
+      col("light"),
+      col("acidity"),
+      from_unixtime(col("timestamp") / 1000).cast("timestamp").as("sensor_timestamp"),
+      // Create sensor_metadata struct from available columns
+      struct(
+        col("battery_level"),
+        col("signal_strength"),
+        col("firmware_version")
+      ).as("sensor_metadata")
     )
   }
 
@@ -199,10 +205,18 @@ object SilverJob {
       // Location validation
       .withColumn("location_valid", col("location").isNotNull && length(col("location")) > 0)
       
-      // Coordinate validation (basic range checks)
-      .withColumn("coordinates_valid",
-        (col("latitude").isNull || col("latitude").between(-90, 90)) &&
-        (col("longitude").isNull || col("longitude").between(-180, 180)))
+      // Motion sensor validation (boolean)
+      .withColumn("motion_valid", col("motion").isNotNull)
+      
+      // Light sensor validation (0 to 100000 lux)
+      .withColumn("light_valid", 
+        col("light").isNotNull && 
+        col("light").between(0, 100000))
+      
+      // Acidity validation (pH 0-14)
+      .withColumn("acidity_valid", 
+        col("acidity").isNotNull && 
+        col("acidity").between(0, 14))
       
       // Overall validity check
       .withColumn("is_valid_record",
@@ -213,7 +227,9 @@ object SilverJob {
         col("humidity_valid") && 
         col("pressure_valid") && 
         col("location_valid") && 
-        col("coordinates_valid"))
+        col("motion_valid") && 
+        col("light_valid") && 
+        col("acidity_valid"))
       
       // Data quality score (0-1)
       .withColumn("data_quality_score",
@@ -224,7 +240,9 @@ object SilverJob {
          col("humidity_valid").cast("int") +
          col("pressure_valid").cast("int") +
          col("location_valid").cast("int") +
-         col("coordinates_valid").cast("int")) / 8.0)
+         col("motion_valid").cast("int") +
+         col("light_valid").cast("int") +
+         col("acidity_valid").cast("int")) / 10.0)
   }
 
   /**
@@ -258,10 +276,32 @@ object SilverJob {
         .when(col("pressure").between(1000, 1025), "normal")
         .otherwise("high"))
       
-      // Comfort index (simplified)
+      // Light categories (lux levels)
+      .withColumn("light_category",
+        when(col("light") < 1, "dark")
+        .when(col("light").between(1, 50), "dim")
+        .when(col("light").between(51, 500), "indoor")
+        .when(col("light").between(501, 10000), "bright")
+        .otherwise("very_bright"))
+      
+      // Acidity categories (pH levels)
+      .withColumn("acidity_category",
+        when(col("acidity") < 3, "very_acidic")
+        .when(col("acidity").between(3, 6), "acidic")
+        .when(col("acidity").between(6, 8), "neutral")
+        .when(col("acidity").between(8, 11), "basic")
+        .otherwise("very_basic"))
+      
+      // Motion status
+      .withColumn("motion_status",
+        when(col("motion") === true, "active")
+        .otherwise("inactive"))
+      
+      // Comfort index (considering temperature, humidity, and light)
       .withColumn("comfort_index",
         when(col("temperature_category") === "comfortable" && 
-             col("humidity_category") === "comfortable", "optimal")
+             col("humidity_category") === "comfortable" && 
+             col("light_category").isin("indoor", "bright"), "optimal")
         .when(col("temperature_category").isin("comfortable", "warm") && 
              col("humidity_category").isin("comfortable", "humid"), "good")
         .otherwise("poor"))
@@ -285,7 +325,7 @@ object SilverJob {
       
       // Device health indicators
       .withColumn("low_battery", col("battery_level") < 20)
-      .withColumn("poor_signal", col("signal_strength") < 50)
+      .withColumn("poor_signal", col("signal_strength") < -80)
       .withColumn("device_health_status",
         when(col("low_battery") && col("poor_signal"), "critical")
         .when(col("low_battery") || col("poor_signal"), "warning")
