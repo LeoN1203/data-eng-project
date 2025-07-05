@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Main-Class: scala.IoTDataProducer
+Specification-Title: data-pipeline-scala
+Specification-Version: 0.1.0-SNAPSHOT
+Specification-Vendor: scala
+Implementation-Title: data-pipeline-scala
+Implementation-Version: 0.1.0-SNAPSHOT
+Implementation-Vendor: scala
+Implementation-Vendor-Id: scala
+

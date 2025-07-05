@@ -9,21 +9,33 @@ import java.util.concurrent.TimeUnit
 object KafkaS3DataLakePipeline {
 
   def main(args: Array[String]): Unit = {
-
     // Initialize Spark Session
     val spark = SparkSession
       .builder()
       .appName("IoT-Kafka-S3-DataLake")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+      .config("spark.hadoop.security.authentication", "simple") // Add this
+      .config("spark.hadoop.hadoop.security.authorization", "false") // Add this
+      // .config("spark.authenticate", "false")
+      // .config("spark.network.auth.enabled", "false")
+      // .config("spark.hadoop.hadoop.security.authentication", "simple")
+      // .config("spark.hadoop.hadoop.security.authorization", "false")
+      // .config("spark.hadoop.hadoop.security.use.subject.creds.only", "false")
+      // .config(
+      //   "spark.hadoop.fs.s3a.aws.credentials.provider",
+      //   "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+      // )
+      .config("spark.hadoop.fs.s3a.endpoint", "s3.eu-north-1.amazonaws.com")
       .config(
         "spark.hadoop.fs.s3a.impl",
         "org.apache.hadoop.fs.s3a.S3AFileSystem"
       )
       .config(
         "spark.hadoop.fs.s3a.aws.credentials.provider",
-        "com.amazonaws.auth.DefaultAWSCredentialsProviderChain"
+        "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
       )
+      .config("spark.jars.ivy", "/tmp/.ivy2")
       .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
@@ -70,9 +82,16 @@ object KafkaS3DataLakePipeline {
       .format("kafka")
       .option("kafka.bootstrap.servers", bootstrapServers)
       .option("subscribe", topic)
-      .option("startingOffsets", "latest") // Use "earliest" for historical data
+      .option(
+        "startingOffsets",
+        "earliest"
+      ) // Use "earliest" for historical data
       .option("failOnDataLoss", "false")
-      .option("kafka.consumer.group.id", "iot-sensor-spark-consumer")
+      .option("kafka.group.id", "iot-sensor-spark-consumer")
+      .option("kafka.metadata.max.age.ms", "5000")
+      .option("kafka.max.poll.interval.ms", "60000")
+      .option("kafka.request.timeout.ms", "30000")
+      .option("minPartitions", "3")
       .load()
   }
 

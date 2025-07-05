@@ -89,6 +89,7 @@ services:
       - KAFKA_METADATA_MAX_AGE_MS=120000
       - KAFKA_REQUEST_TIMEOUT_MS=60000
       - KAFKA_DELIVERY_TIMEOUT_MS=120000
+    # restart: unless-stopped
 
   # Spark Ingest Service
   spark-ingest:

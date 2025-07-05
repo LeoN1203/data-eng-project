@@ -1,10 +1,11 @@
 # producer-app/Dockerfile
 FROM openjdk:11-jre-slim
 
-ARG JAR_NAME=
+ARG JAR_NAME=data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
+ARG SCALA_VERSION=2.13
 
 WORKDIR /app
-COPY target/scala-2.12/${JAR_NAME} ./app.jar
+COPY target/scala-${SCALA_VERSION}/${JAR_NAME} ./app.jar
 
 # Env vars to override at runtime:
 #   KAFKA_BOOTSTRAP_SERVER, TOPIC

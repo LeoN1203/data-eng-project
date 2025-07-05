@@ -5,10 +5,8 @@ import org.apache.kafka.common.serialization.StringSerializer
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import java.time.Instant
-import java.util.concurrent.TimeUnit
 import java.time.Duration
 import scala.util.{Random, Try}
-import scala.collection.mutable
 
 /** IoT Device Data Producer
   *
@@ -23,8 +21,6 @@ class IoTDataProducer(topicName: String) {
   private val random = new Random
 
   // Device types and locations
-  private val deviceTypes =
-    Seq("temperature", "humidity", "pressure", "motion", "light")
   private val locations =
     Seq("warehouse-a", "warehouse-b", "field-a", "field-b")
 
@@ -33,8 +29,16 @@ class IoTDataProducer(topicName: String) {
   private def createProducer(): KafkaProducer[String, String] = {
     val props = new java.util.Properties()
 
-    // Basic configuration
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092")
+    // Basic configuration - use environment variables
+    val bootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+    val clientId = sys.env.getOrElse("KAFKA_CLIENT_ID", "iot-producer")
+    val maxBlockMs = sys.env.getOrElse("KAFKA_MAX_BLOCK_MS", "30000")
+    val metadataMaxAgeMs = sys.env.getOrElse("KAFKA_METADATA_MAX_AGE_MS", "300000")
+    
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
+    props.put(ProducerConfig.CLIENT_ID_CONFIG, clientId)
+    props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, maxBlockMs)
+    props.put(ProducerConfig.METADATA_MAX_AGE_CONFIG, metadataMaxAgeMs)
     props.put(
       ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
       classOf[StringSerializer].getName
@@ -185,7 +189,12 @@ class IoTDataProducer(topicName: String) {
 
 object IoTDataProducer {
   def main(args: Array[String]): Unit = {
-    val producer = new IoTDataProducer("iot-sensor-data")
+    println(
+      "Starting IoT Data Producer\n" +
+        "This will generate synthetic sensor data and send it to Kafka topic 'iot-sensor-data'"
+    )
+    val topicName = sys.env.getOrElse("KAFKA_TOPIC", "iot-sensor-data")
+    val producer = new IoTDataProducer(topicName)
 
     // Add shutdown hook for graceful cleanup
     sys.addShutdownHook {
@@ -194,7 +203,7 @@ object IoTDataProducer {
 
     try {
       // Generate data for 30 seconds at 5 messages per second
-      producer.startDataGeneration(5, 30)
+      producer.startDataGeneration(1, 10000)
     } finally {
       producer.close()
     }

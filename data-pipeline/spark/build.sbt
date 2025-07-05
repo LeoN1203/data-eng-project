@@ -7,6 +7,12 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "2.12.18" // Match bitnami Spark containers
 ThisBuild / organization := "scala"
 
+val sparkVersion =
+  "3.3.2"
+val kafkaVersion = "3.2.0"
+val hadoopVersion = "3.3.4"
+val awsVersion = "1.12.262"
+
 // Project definition
 lazy val root = (project in file("."))
   .enablePlugins(JavaAppPackaging, DockerPlugin)
@@ -37,14 +43,22 @@ lazy val root = (project in file("."))
 
     // Dependency management - keeping their versions but compatible with Scala 2.12
     libraryDependencies ++= Seq(
-      // Kafka dependencies for message streaming
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
+      // Spark Core
+      "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
+      "org.apache.spark" %% "spark-sql" % sparkVersion % "provided",
+      "org.apache.spark" %% "spark-streaming" % sparkVersion % "provided",
+      // new one
+      "org.apache.spark" %% "spark-tags" % sparkVersion,
+      "org.apache.spark" %% "spark-unsafe" % sparkVersion,
 
-      // Spark dependencies for data processing
-      "org.apache.spark" %% "spark-core" % "3.5.1",
-      "org.apache.spark" %% "spark-sql" % "3.5.1",
-      "org.apache.spark" %% "spark-streaming" % "3.5.1",
+      // AWS S3 Support
+      "org.apache.hadoop" % "hadoop-aws" % hadoopVersion,
+      "com.amazonaws" % "aws-java-sdk-bundle" % awsVersion,
+
+      // Kafka dependencies for message streaming
+      "org.apache.kafka" % "kafka-clients" % kafkaVersion,
+      "org.apache.kafka" %% "kafka-streams-scala" % kafkaVersion,
+      "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion,
 
       // Delta Lake for data lake operations
       "io.delta" %% "delta-core" % "2.4.0",
@@ -87,10 +101,11 @@ lazy val root = (project in file("."))
 
     // Assembly plugin for creating fat JARs
     assembly / assemblyMergeStrategy := {
-      case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-      case "application.conf"            => MergeStrategy.concat
-      case "reference.conf"              => MergeStrategy.concat
-      case _                             => MergeStrategy.first
+      case PathList("META-INF", "services", xs @ _*) => MergeStrategy.first
+      case PathList("META-INF", xs @ _*)             => MergeStrategy.discard
+      case "application.conf"                        => MergeStrategy.concat
+      case "reference.conf"                          => MergeStrategy.concat
+      case _                                         => MergeStrategy.first
     },
 
     // Docker configuration for containerization
