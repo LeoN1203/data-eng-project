@@ -84,7 +84,6 @@ object SilverJob {
   ): DataQualityReport = {
     import spark.implicits._
 
-    // Read Bronze data for specific date
     val bronzeData = readBronzeData(spark, bronzePath, processDate)
     
     if (bronzeData.isEmpty) {
@@ -97,19 +96,17 @@ object SilverJob {
     
     println(s"Processing $totalRecords records from Bronze tier...")
 
-    // Apply data quality and enrichment
     val silverData = bronzeDf
       .transform(standardizeSensorData)
       .transform(applyDataQualityRules)
       .transform(enrichWithBusinessLogic)
       .transform(addProcessingMetadata)
-      .filter(col("is_valid_record") === true) // Only keep valid records
+      .filter(col("is_valid_record") === true)
 
     val validRecords = silverData.count()
     val invalidRecords = totalRecords - validRecords
     val qualityScore = if (totalRecords > 0) validRecords.toDouble / totalRecords.toDouble else 0.0
 
-    // Write to Silver tier
     writeSilverData(silverData, silverPath, processDate)
 
     DataQualityReport(totalRecords, validRecords, invalidRecords, getCurrentTimestamp(), qualityScore)
@@ -122,8 +119,8 @@ object SilverJob {
     try {
       val dateParts = processDate.split("-")
       val year = dateParts(0)
-      val month = dateParts(1).toInt.toString  // Remove zero-padding
-      val day = dateParts(2).toInt.toString    // Remove zero-padding
+      val month = dateParts(1).toInt.toString
+      val day = dateParts(2).toInt.toString
       
       val dateFilteredPath = s"$bronzePath/year=$year/month=$month/day=$day"
       
@@ -132,7 +129,7 @@ object SilverJob {
       val df = spark.read
         .format("parquet")
         .load(dateFilteredPath)
-        .filter(col("processing_status") === "ingested") // Only process successfully ingested records
+        .filter(col("processing_status") === "ingested")
       
       if (df.count() > 0) Some(df) else None
     } catch {
@@ -147,7 +144,6 @@ object SilverJob {
    */
   def standardizeSensorData(df: DataFrame): DataFrame = {
     df.select(
-      // Processing metadata from Bronze tier
       col("bronze_ingestion_time"),
       col("bronze_date"),
       year(col("bronze_date")).as("year"),
@@ -334,7 +330,6 @@ object SilverJob {
     println(s"Silver data written successfully")
     println(s"Partitioned by: year, month, day, deviceType")
     
-    // Show sample of processed data
     println("Sample Silver data:")
     df.select("deviceId", "deviceType", "temperature", "humidity", "pressure", "comfort_index", "device_health_status")
       .show(5)
@@ -396,28 +391,24 @@ object SilverJob {
 
     println("=== SILVER TIER ANALYSIS ===")
     
-    // Overall statistics
     val totalRecords = silverData.count()
     val uniqueDevices = silverData.select("deviceId").distinct().count()
     
     println(s"Total Records: $totalRecords")
     println(s"Unique Devices: $uniqueDevices")
     
-    // Device health distribution
     println("\nDevice Health Status:")
     silverData.groupBy("device_health_status")
       .count()
       .orderBy(desc("count"))
       .show()
     
-    // Temperature categories distribution
     println("\nTemperature Categories:")
     silverData.groupBy("temperature_category")
       .count()
       .orderBy(desc("count"))
       .show()
     
-    // Comfort index distribution
     println("\nComfort Index Distribution:")
     silverData.groupBy("comfort_index")
       .count()
