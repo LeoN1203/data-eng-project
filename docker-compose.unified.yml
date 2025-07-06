@@ -1,0 +1,431 @@
+services:
+  # ================================
+  # INFRASTRUCTURE SERVICES
+  # ================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - data-pipeline-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:9093,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - data-pipeline-network
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ================================
+  # SPARK CLUSTER
+  # ================================
+  spark-master:
+    image: bitnami/spark:3.5.1
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    ports:
+      - "8081:8080"  # Spark Master Web UI
+      - "7077:7077"  # Spark Master Port
+    volumes:
+      - ./data-pipeline/spark:/opt/spark-apps
+      - ./storage:/opt/storage
+    networks:
+      - data-pipeline-network
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep org.apache.spark.deploy.master.Master"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  spark-worker-1:
+    image: bitnami/spark:3.5.1
+    container_name: spark-worker-1
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    volumes:
+      - ./data-pipeline/spark:/opt/spark-apps
+      - ./storage:/opt/storage
+    networks:
+      - data-pipeline-network
+
+  spark-worker-2:
+    image: bitnami/spark:3.5.1
+    container_name: spark-worker-2
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    volumes:
+      - ./data-pipeline/spark:/opt/spark-apps
+      - ./storage:/opt/storage
+    networks:
+      - data-pipeline-network
+
+  # ================================
+  # DATABASE & MONITORING
+  # ================================
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: grafana
+      POSTGRES_PASSWORD: grafana
+      POSTGRES_DB: grafana_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - data-pipeline-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grafana -d grafana_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - data-pipeline-network
+
+  # ================================
+  # DATA GENERATION
+  # ================================
+  iot-producer:
+    build:
+      context: .
+      dockerfile: sensor-simulator/Dockerfile
+    container_name: iot-producer
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - TOPIC=iot-sensor-data
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - data-pipeline-network
+    profiles:
+      - producer
+
+  # ================================
+  # KAFKA INGESTION
+  # ================================
+  kafka-ingestion:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.unified
+    container_name: kafka-ingestion
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-north-1}
+      - S3_BUCKET=${S3_BUCKET:-inde-aws-datalake}
+      - SPARK_APPLICATION_MAIN_CLASS=ingestion.KafkaS3DataLakePipeline
+      - SPARK_MASTER=local[*]
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - PROCESS_DATE=${PROCESS_DATE}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - KAFKA_TOPIC=iot-sensor-data
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
+    profiles:
+      - ingestion
+
+  # ================================
+  # KAFKA SETUP (Topic Creation)
+  # ================================
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.2.1
+    container_name: kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - data-pipeline-network
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...'
+        while ! kafka-topics --list --bootstrap-server kafka:9093 &>/dev/null; do
+          sleep 1
+        done
+        echo 'Creating topic: iot-sensor-data'
+        kafka-topics --create --if-not-exists --topic iot-sensor-data --bootstrap-server kafka:9093 --partitions 1 --replication-factor 1
+        echo 'Topic created successfully'
+      "
+    restart: "no"
+
+  # ================================
+  # ALERTING PIPELINE (Real-time Monitoring)
+  # ================================
+  iot-alerting-pipeline:
+    build:
+      context: ./alerting-pipeline/spark
+      dockerfile: Dockerfile
+    container_name: iot-alerting-pipeline
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      KAFKA_TOPIC: iot-sensor-data
+      KAFKA_CONSUMER_GROUP_ID: iot-alerting-consumer-unified
+      KAFKA_STARTING_OFFSETS: earliest
+      
+      # Spark Configuration
+      SPARK_APP_NAME: IoT-Kafka-Alerting-Pipeline-Unified
+      SPARK_CHECKPOINT_LOCATION: /tmp/kafka-alerting-checkpoints/
+      SPARK_PROCESSING_TIME_SECONDS: 5
+      SPARK_LOG_LEVEL: WARN
+      
+      # Alerting Configuration
+      ALERT_RECIPIENT_EMAIL: admin@company.com
+      
+      # SMTP Configuration (override with your credentials)
+      SMTP_HOST: ${SMTP_HOST:-sandbox.smtp.mailtrap.io}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM:-iot-alerts@company.com}
+      EMAIL_SUBJECT_PREFIX: "[IoT Alert - Unified]"
+    networks:
+      - data-pipeline-network
+    restart: unless-stopped
+    volumes:
+      - alerting-checkpoints:/tmp/kafka-alerting-checkpoints
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'processing.KafkaAlertingPipeline' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ================================
+  # DATA PROCESSING JOBS
+  # ================================
+  bronze-job:
+    image: pipeline-unified:latest
+    container_name: bronze-job
+    environment:
+      - SPARK_HOME=/opt/bitnami/spark
+      - SPARK_MASTER=local[*]
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - SPARK_TOTAL_EXECUTOR_CORES=4
+      - PROCESS_DATE=${PROCESS_DATE}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    volumes:
+      - ./data-pipeline/spark:/opt/spark-apps
+    entrypoint: []
+    command: >
+      /opt/bitnami/spark/bin/spark-submit
+      --class processing.BronzeJob
+      --master local[*]
+      --deploy-mode client
+      --driver-memory 2g
+      --executor-memory 2g
+      --total-executor-cores 4
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376
+      --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID}
+      --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY}
+      --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+      --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+      /opt/spark-apps/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
+      ${PROCESS_DATE}
+
+  silver-job:
+    image: pipeline-unified:latest
+    container_name: silver-job
+    environment:
+      - SPARK_HOME=/opt/bitnami/spark
+      - SPARK_MASTER=local[*]
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - SPARK_TOTAL_EXECUTOR_CORES=4
+      - PROCESS_DATE=${PROCESS_DATE}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    volumes:
+      - ./data-pipeline/spark:/opt/spark-apps
+    entrypoint: []
+    command: >
+      /opt/bitnami/spark/bin/spark-submit
+      --class processing.SilverJob
+      --master local[*]
+      --deploy-mode client
+      --driver-memory 2g
+      --executor-memory 2g
+      --total-executor-cores 4
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376
+      --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID}
+      --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY}
+      --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+      --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+      /opt/spark-apps/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
+      ${PROCESS_DATE}
+
+  gold-job:
+    image: pipeline-unified:latest
+    container_name: gold-job
+    environment:
+      - SPARK_HOME=/opt/bitnami/spark
+      - SPARK_MASTER=local[*]
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - SPARK_TOTAL_EXECUTOR_CORES=4
+      - PROCESS_DATE=${PROCESS_DATE}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    volumes:
+      - ./data-pipeline/spark:/opt/spark-apps
+    entrypoint: []
+    command: >
+      /opt/bitnami/spark/bin/spark-submit
+      --class processing.GoldJob
+      --master local[*]
+      --deploy-mode client
+      --driver-memory 2g
+      --executor-memory 2g
+      --total-executor-cores 4
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376
+      --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID}
+      --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY}
+      --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+      --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+      /opt/spark-apps/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
+      ${PROCESS_DATE}
+
+  grafana-export:
+    image: pipeline-unified:latest
+    container_name: grafana-export
+    environment:
+      - SPARK_HOME=/opt/bitnami/spark
+      - SPARK_MASTER=local[*]
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - SPARK_TOTAL_EXECUTOR_CORES=4
+      - PROCESS_DATE=${PROCESS_DATE}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=grafana_db
+      - POSTGRES_USER=grafana
+      - POSTGRES_PASSWORD=grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data-pipeline/spark:/opt/spark-apps
+    networks:
+      - data-pipeline-network
+    entrypoint: []
+    command: >
+      /opt/bitnami/spark/bin/spark-submit
+      --class processing.GrafanaExportJob
+      --master local[*]
+      --deploy-mode client
+      --driver-memory 2g
+      --executor-memory 2g
+      --total-executor-cores 4
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376
+      --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID}
+      --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY}
+      --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+      --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+      /opt/spark-apps/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
+      ${PROCESS_DATE}
+
+# ================================
+# NETWORKS
+# ================================
+networks:
+  data-pipeline-network:
+    driver: bridge
+
+# ================================
+# VOLUMES
+# ================================
+volumes:
+  pgdata:
+  grafana_data:
+  spark-logs:
+    driver: local
+  pipeline-logs:
+    driver: local 
+  alerting-checkpoints:
+    driver: local 

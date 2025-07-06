@@ -15,49 +15,66 @@ object KafkaS3DataLakePipeline {
       .appName("IoT-Kafka-S3-DataLake")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
-      .config("spark.hadoop.security.authentication", "simple") // Add this
-      .config("spark.hadoop.hadoop.security.authorization", "false") // Add this
-      // .config("spark.authenticate", "false")
-      // .config("spark.network.auth.enabled", "false")
-      // .config("spark.hadoop.hadoop.security.authentication", "simple")
-      // .config("spark.hadoop.hadoop.security.authorization", "false")
-      // .config("spark.hadoop.hadoop.security.use.subject.creds.only", "false")
-      // .config(
-      //   "spark.hadoop.fs.s3a.aws.credentials.provider",
-      //   "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-      // )
-      .config("spark.hadoop.fs.s3a.endpoint", "s3.eu-north-1.amazonaws.com")
-      .config(
-        "spark.hadoop.fs.s3a.impl",
-        "org.apache.hadoop.fs.s3a.S3AFileSystem"
-      )
-      .config(
-        "spark.hadoop.fs.s3a.aws.credentials.provider",
-        "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-      )
+      .config("spark.hadoop.security.authentication", "simple")
+      .config("spark.hadoop.hadoop.security.authorization", "false")
+      .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+      .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
+      .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "true")
+      .config("spark.hadoop.fs.s3a.path.style.access", "false")
+      .config("spark.hadoop.fs.s3a.connection.timeout", "60000")
+      .config("spark.hadoop.fs.s3a.connection.establish.timeout", "60000")
+      .config("spark.hadoop.fs.s3a.attempts.maximum", "10")
+      .config("spark.hadoop.fs.s3a.retry.interval", "1000ms")
+      .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+      .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+      .config("spark.sql.execution.arrow.maxRecordsPerBatch", "10000")
       .config("spark.jars.ivy", "/tmp/.ivy2")
       .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
 
-    // Configuration parameters
-    val kafkaBootstrapServers =
-      "kafka:9093" // Updated to use unified docker-compose container name with internal port
-    val kafkaTopic = "iot-sensor-data" // Update with your topic name
-    val s3BucketPath =
-      "s3a://inde-aws-datalake/raw/iot-data/" // Aligned with Bronze job expectations
-    val checkpointLocation =
-      "s3a://inde-aws-datalake/checkpoints/"
+    // Configuration parameters - use environment variables with fallbacks
+    val kafkaBootstrapServers = sys.env.getOrElse("KAFKA_BOOTSTRAP_SERVERS", "kafka:9093")
+    val kafkaTopic = sys.env.getOrElse("KAFKA_TOPIC", "iot-sensor-data")
+    val s3Bucket = sys.env.getOrElse("S3_BUCKET", "inde-aws-datalake")
+    val awsRegion = sys.env.getOrElse("AWS_DEFAULT_REGION", "eu-north-1")
+    val s3BucketPath = s"s3a://$s3Bucket/raw/iot-data/"
+    val checkpointLocation = s"s3a://$s3Bucket/checkpoints/"
+
+    println(s"Using S3 bucket: $s3Bucket")
+    println(s"S3 path: $s3BucketPath")
+    println(s"Checkpoint location: $checkpointLocation")
+    println(s"AWS Region: $awsRegion")
+    println(s"Kafka Bootstrap Servers: $kafkaBootstrapServers")
+    println(s"Kafka Topic: $kafkaTopic")
 
     try {
       // Read from Kafka stream
       val kafkaStream = readFromKafka(spark, kafkaBootstrapServers, kafkaTopic)
-
+      
+      println("=== DEBUG: Kafka stream schema ===")
+      kafkaStream.printSchema()
+      
       // Parse and transform the data
       val processedStream = processIoTData(kafkaStream)
-
+      
+      println("=== DEBUG: Processed stream schema ===")
+      processedStream.printSchema()
+      
       // Write to S3 Data Lake
       writeToS3DataLake(processedStream, s3BucketPath, checkpointLocation)
+      
+      println("=== DEBUG: Streaming query started, waiting for termination ===")
+      
+      // Add a simple test to verify data is flowing
+      val testQuery = processedStream.writeStream
+        .format("console")
+        .outputMode(OutputMode.Append())
+        .trigger(Trigger.ProcessingTime(5, TimeUnit.SECONDS))
+        .queryName("test-data-flow")
+        .start()
+      
+      println(s"=== DEBUG: Test query started with ID: ${testQuery.id} ===")
 
       // Keep the application running
       spark.streams.awaitAnyTermination()
@@ -178,6 +195,9 @@ object KafkaS3DataLakePipeline {
       s3Path: String,
       checkpointLocation: String
   ): Unit = {
+    println(s"=== DEBUG: Writing to S3 path: $s3Path ===")
+    println(s"=== DEBUG: Checkpoint location: $checkpointLocation ===")
+    
     // Create a simplified structure for JSON output
     val jsonStream = processedStream.select(
       col("original_json").as("value"),
@@ -186,8 +206,19 @@ object KafkaS3DataLakePipeline {
       col("day"),
       col("hour")
     )
+    
+    println("=== DEBUG: JSON stream schema ===")
+    jsonStream.printSchema()
 
-    jsonStream.writeStream
+    // Add a count query to monitor data flow
+    val countQuery = jsonStream.writeStream
+      .format("console")
+      .outputMode(OutputMode.Complete())
+      .trigger(Trigger.ProcessingTime(10, TimeUnit.SECONDS))
+      .queryName("iot-data-count")
+      .start()
+
+    val query = jsonStream.writeStream
       .format("json")
       .outputMode(OutputMode.Append())
       .option("checkpointLocation", checkpointLocation)
@@ -199,10 +230,13 @@ object KafkaS3DataLakePipeline {
         "hour"
       ) // Partition for efficient querying
       .trigger(
-        Trigger.ProcessingTime(30, TimeUnit.SECONDS)
-      ) // Process every 30 seconds
+        Trigger.ProcessingTime(10, TimeUnit.SECONDS)
+      ) // Process every 10 seconds instead of 30
       .queryName("iot-s3-json-sink")
       .start()
+      
+    println(s"=== DEBUG: Streaming query started with ID: ${query.id} ===")
+    println(s"=== DEBUG: Count query started with ID: ${countQuery.id} ===")
   }
 
   /** Alternative method for batch processing with additional transformations
@@ -222,7 +256,6 @@ object KafkaS3DataLakePipeline {
       .withWatermark("sensor_timestamp", "10 minutes")
       .groupBy(
         window(col("sensor_timestamp"), "5 minutes"),
-        col("deviceType"),
         col("deviceId")
       )
       .agg(
@@ -232,13 +265,11 @@ object KafkaS3DataLakePipeline {
         avg("humidity").as("avg_humidity"),
         avg("pressure").as("avg_pressure"),
         count("*").as("record_count"),
-        first("latitude").as("latitude"),
-        first("longitude").as("longitude")
+        first("location").as("location")
       )
       .select(
         col("window.start").as("window_start"),
         col("window.end").as("window_end"),
-        col("deviceType"),
         col("deviceId"),
         col("avg_temperature"),
         col("min_temperature"),
@@ -246,8 +277,7 @@ object KafkaS3DataLakePipeline {
         col("avg_humidity"),
         col("avg_pressure"),
         col("record_count"),
-        col("latitude"),
-        col("longitude")
+        col("location")
       )
 
     // Write aggregated data to a separate path
@@ -256,7 +286,7 @@ object KafkaS3DataLakePipeline {
       .outputMode(OutputMode.Update())
       .option("checkpointLocation", s"$checkpointLocation/aggregated")
       .option("path", s"$s3Path/aggregated/")
-      .partitionBy("deviceType")
+      .partitionBy("deviceId")
       .trigger(Trigger.ProcessingTime(1, TimeUnit.MINUTES))
       .queryName("iot-aggregated-s3-sink")
       .start()

@@ -3,10 +3,11 @@
 # =============================================================================
 # MASTER WORKFLOW SCRIPT - Complete Data Pipeline Orchestration
 # =============================================================================
-# This script orchestrates the entire data pipeline workflow:
+# This script orchestrates the entire data pipeline workflow using a unified
+# docker-compose file with proper service dependencies:
 # 1. Environment setup and validation
 # 2. Build all Docker images
-# 3. Start infrastructure services (including Grafana & PostgreSQL)
+# 3. Start infrastructure services (Kafka, Spark, PostgreSQL, Grafana)
 # 4. Start IoT data producer
 # 5. Start Kafka ingestion
 # 6. Execute Bronze → Silver → Gold → Grafana pipeline
@@ -48,11 +49,13 @@ step() {
     echo -e "${PURPLE}[$(date '+%Y-%m-%d %H:%M:%S')] STEP:${NC} $1"
 }
 
-
+# Configuration
+DOCKER_COMPOSE_FILE="docker-compose.unified.yml"
 PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
 PRODUCER_DURATION=${PRODUCER_DURATION:-300}  # 5 minutes default
 INGESTION_DURATION=${INGESTION_DURATION:-360}  # 6 minutes default
-CLEANUP_ON_EXIT=${CLEANUP_ON_EXIT:-false}  # Changed default to false to keep containers running
+S3_BUFFER_TIME=${S3_BUFFER_TIME:-30}  # 30 seconds default for S3 eventual consistency
+CLEANUP_ON_EXIT=${CLEANUP_ON_EXIT:-false}
 SKIP_BUILD=${SKIP_BUILD:-false}
 SKIP_INFRASTRUCTURE=${SKIP_INFRASTRUCTURE:-false}
 KEEP_SERVICES_RUNNING=${KEEP_SERVICES_RUNNING:-true}
@@ -63,14 +66,14 @@ print_banner() {
     echo "║                        🚀 DATA PIPELINE MASTER WORKFLOW 🚀                   ║"
     echo "╠═══════════════════════════════════════════════════════════════════════════════╣"
     echo "║                                                                               ║"
-    echo "║  This script will orchestrate the complete data pipeline workflow:           ║"
-    echo "║  • Build Docker images                                                        ║"
-    echo "║  • Start infrastructure services (Kafka, Spark, PostgreSQL, Grafana)        ║"
-    echo "║  • Generate IoT data                                                          ║"
-    echo "║  • Ingest data to S3                                                          ║"
-    echo "║  • Process through Bronze → Silver → Gold layers                             ║"
-    echo "║  • Export to Grafana                                                          ║"
-    echo "║  • Keep services running for monitoring                                       ║"
+    echo "║  This script orchestrates the complete data pipeline workflow using a        ║"
+    echo "║  unified docker-compose file with proper service dependencies:               ║"
+    echo "║  • Infrastructure services (Kafka, Spark, PostgreSQL, Grafana)              ║"
+    echo "║  • Real-time alerting pipeline (starts early, monitors continuously)        ║"
+    echo "║  • IoT data producer                                                          ║"
+    echo "║  • Kafka to S3 ingestion                                                      ║"
+    echo "║  • Data processing (Bronze → Silver → Gold → Grafana)                        ║"
+    echo "║  • Monitoring and visualization                                               ║"
     echo "║                                                                               ║"
     echo "╚═══════════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -83,10 +86,18 @@ show_usage() {
     echo "  --date DATE              Process date (YYYY-MM-DD, default: today)"
     echo "  --producer-duration SEC  IoT producer duration in seconds (default: 300)"
     echo "  --ingestion-duration SEC Kafka ingestion duration in seconds (default: 360)"
+    echo "  --s3-buffer-time SEC     Buffer time for S3 eventual consistency (default: 30)"
     echo "  --skip-build            Skip Docker image building"
     echo "  --skip-infrastructure   Skip infrastructure startup"
-    echo "  --cleanup-on-exit       Cleanup containers on exit (default: keep running)"
+    echo "  --cleanup-on-exit       Cleanup processing containers on exit (preserves Grafana/PostgreSQL)"
     echo "  --help                  Show this help message"
+    echo ""
+    echo "Pipeline Features:"
+    echo "  • Visual countdown timers for producer and ingestion phases"
+    echo "  • S3 data validation before each processing layer"
+    echo "  • Sequential execution: Bronze → Silver → Gold → Grafana"
+    echo "  • Buffer times for S3 eventual consistency"
+    echo "  • Preserves monitoring infrastructure (Grafana/PostgreSQL) during cleanup"
     echo ""
     echo "Environment Variables (set in .env file):"
     echo "  AWS_ACCESS_KEY_ID       AWS access key"
@@ -95,11 +106,11 @@ show_usage() {
     echo "  S3_BUCKET               S3 bucket name"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Full workflow for today, keep services running"
+    echo "  $0                                    # Full workflow for today"
     echo "  $0 --date 2024-01-15                # Full workflow for specific date"
     echo "  $0 --skip-build                     # Skip building, use existing images"
-    echo "  $0 --cleanup-on-exit                # Cleanup containers when done"
-    echo "  $0 --producer-duration 600          # Run producer for 10 minutes"
+    echo "  $0 --producer-duration 60 --ingestion-duration 90  # Quick test run"
+    echo "  $0 --cleanup-on-exit                # Cleanup processing containers when done"
 }
 
 check_prerequisites() {
@@ -112,6 +123,11 @@ check_prerequisites() {
     
     if ! docker compose version >/dev/null 2>&1; then
         error "Docker Compose is not installed or not in PATH."
+        exit 1
+    fi
+    
+    if [ ! -f "$DOCKER_COMPOSE_FILE" ]; then
+        error "Unified docker-compose file not found: $DOCKER_COMPOSE_FILE"
         exit 1
     fi
     
@@ -148,37 +164,68 @@ build_images() {
     
     step "Building Docker images..."
     
-    log "Building all pipeline containers..."
-    if ./scripts/build-containers.sh all; then
-        success "All Docker images built successfully"
+    # Build the data pipeline JAR file first
+    log "Building data pipeline JAR file..."
+    if [ -f "scripts/build-jar.sh" ]; then
+        chmod +x scripts/build-jar.sh
+        ./scripts/build-jar.sh
     else
-        error "Failed to build Docker images"
+        log "Building JAR file directly..."
+        cd data-pipeline/spark
+        sbt assembly
+        cd "$PROJECT_ROOT"
+    fi
+    
+    # Build the sensor-simulator JAR file
+    log "Building sensor-simulator JAR file..."
+    if [ -d "sensor-simulator" ]; then
+        cd sensor-simulator
+        if sbt clean assembly; then
+            success "Sensor-simulator JAR build completed successfully"
+            cd "$PROJECT_ROOT"
+        else
+            error "Sensor-simulator JAR build failed"
+            cd "$PROJECT_ROOT"
+            exit 1
+        fi
+    else
+        warning "sensor-simulator directory not found, skipping sensor JAR build"
+    fi
+    
+    log "Building sensor-simulator (IoT producer) image..."
+    docker build -f sensor-simulator/Dockerfile -t sensor-producer:latest .
+    
+    log "Building unified pipeline image..."
+    if [ -f "docker/Dockerfile.unified" ]; then
+        docker build -f docker/Dockerfile.unified -t pipeline-unified:latest .
+    else
+        error "Unified Dockerfile not found. Please ensure docker/Dockerfile.unified exists."
         exit 1
     fi
+    
+    success "All Docker images built successfully"
 }
 
 check_and_free_ports() {
-    step "Checking required ports..."
+    step "Checking and freeing required ports..."
     
-    if lsof -i :5432 >/dev/null 2>&1; then
-        warning "Port 5432 is in use. Attempting to free it..."
-        sudo fuser -k 5432/tcp >/dev/null 2>&1 || true
-        sleep 2
-        if lsof -i :5432 >/dev/null 2>&1; then
-            error "Could not free port 5432. Please stop the service using this port manually."
-            exit 1
-        else
-            success "Port 5432 freed successfully"
+    local ports=(5432 3001 9092 8081 7077)
+    
+    for port in "${ports[@]}"; do
+        if lsof -i :$port >/dev/null 2>&1; then
+            warning "Port $port is in use. Attempting to free it..."
+            sudo fuser -k $port/tcp >/dev/null 2>&1 || true
+            sleep 2
+            if lsof -i :$port >/dev/null 2>&1; then
+                error "Could not free port $port. Please stop the service using this port manually."
+                exit 1
+            else
+                success "Port $port freed successfully"
+            fi
         fi
-    fi
+    done
     
-    if lsof -i :3001 >/dev/null 2>&1; then
-        warning "Port 3001 is in use. Attempting to free it..."
-        sudo fuser -k 3001/tcp >/dev/null 2>&1 || true
-        sleep 2
-    fi
-    
-    success "Required ports are available"
+    success "All required ports are available"
 }
 
 start_infrastructure() {
@@ -191,84 +238,140 @@ start_infrastructure() {
     
     check_and_free_ports
     
-    log "Starting core pipeline services (Kafka, Zookeeper, Spark)..."
-    docker compose -f docker/docker-compose.yml up -d
+    log "Starting infrastructure services (Kafka, Spark, PostgreSQL, Grafana)..."
+    export PROCESS_DATE="$PROCESS_DATE"
     
-    log "Waiting for core services to be ready..."
-    sleep 30
+    # Start infrastructure services (no profiles needed for base services)
+    docker compose -f "$DOCKER_COMPOSE_FILE" up -d zookeeper kafka spark-master spark-worker-1 spark-worker-2 postgres grafana
     
-    log "Starting PostgreSQL and Grafana services..."
-    docker compose -f grafana-config/docker-compose.yml up -d
-    
-    log "Waiting for PostgreSQL to be ready..."
-    sleep 15
-    
+    log "Waiting for services to be ready..."
     local retries=0
-    local max_retries=10
+    local max_retries=8
+    
     while [ $retries -lt $max_retries ]; do
-        if docker ps | grep kafka | grep -q "Up"; then
-            success "Kafka is running"
+        # Check if key services are running
+        local kafka_running=$(docker compose -f "$DOCKER_COMPOSE_FILE" ps kafka --format "table {{.State}}" 2>/dev/null | grep -c "running" || echo "0")
+        local spark_running=$(docker compose -f "$DOCKER_COMPOSE_FILE" ps spark-master --format "table {{.State}}" 2>/dev/null | grep -c "running" || echo "0")
+        local postgres_running=$(docker compose -f "$DOCKER_COMPOSE_FILE" ps postgres --format "table {{.State}}" 2>/dev/null | grep -c "running" || echo "0")
+        
+        if [[ "$kafka_running" -eq 1 && "$spark_running" -eq 1 && "$postgres_running" -eq 1 ]]; then
+            success "Infrastructure services are running"
+            log "Allowing additional time for services to fully initialize..."
+            sleep 30  # Give services time to fully start up
             break
         else
-            log "Waiting for Kafka to be ready... (attempt $((retries + 1))/$max_retries)"
+            log "Waiting for infrastructure services to start... (attempt $((retries + 1))/$max_retries)"
+            sleep 15
+            retries=$((retries + 1))
+        fi
+    done
+    
+    if [ $retries -eq $max_retries ]; then
+        warning "Some services may not be ready, but continuing..."
+        log "Current service status:"
+        docker compose -f "$DOCKER_COMPOSE_FILE" ps
+    fi
+    
+    success "Infrastructure services started successfully"
+}
+
+setup_kafka_topic() {
+    step "Setting up Kafka topic..."
+    
+    log "Creating Kafka topic for IoT sensor data..."
+    docker compose -f "$DOCKER_COMPOSE_FILE" up kafka-setup
+    
+    success "Kafka topic setup completed"
+}
+
+start_alerting_pipeline() {
+    step "Starting alerting pipeline for real-time monitoring..."
+    
+    log "Starting alerting pipeline (will detect data as soon as it starts flowing)..."
+    docker compose -f "$DOCKER_COMPOSE_FILE" up -d iot-alerting-pipeline
+    
+    # Wait for alerting pipeline to be ready
+    log "Waiting for alerting pipeline to be ready..."
+    local retries=0
+    local max_retries=10
+    
+    while [ $retries -lt $max_retries ]; do
+        local alerting_running=$(docker compose -f "$DOCKER_COMPOSE_FILE" ps iot-alerting-pipeline --format "table {{.State}}" 2>/dev/null | grep -c "running" || echo "0")
+        
+        if [ "$alerting_running" -eq 1 ]; then
+            success "Alerting pipeline is running and ready to detect data in real-time"
+            log "Alerting pipeline will monitor all incoming IoT sensor data for anomalies"
+            break
+        else
+            log "Waiting for alerting pipeline to start... (attempt $((retries + 1))/$max_retries)"
             sleep 10
             retries=$((retries + 1))
         fi
     done
     
     if [ $retries -eq $max_retries ]; then
-        error "Kafka failed to start properly"
-        exit 1
+        warning "Alerting pipeline may not be ready, but continuing..."
+        docker compose -f "$DOCKER_COMPOSE_FILE" logs iot-alerting-pipeline
     fi
     
-    retries=0
-    while [ $retries -lt $max_retries ]; do
-        if docker exec postgres pg_isready -U grafana >/dev/null 2>&1; then
-            success "PostgreSQL is ready"
-            break
-        else
-            log "Waiting for PostgreSQL to be ready... (attempt $((retries + 1))/$max_retries)"
-            sleep 5
-            retries=$((retries + 1))
-        fi
-    done
-    
-    if [ $retries -eq $max_retries ]; then
-        error "PostgreSQL failed to become ready"
-        exit 1
-    fi
-    
-    log "Verifying network connectivity..."
-    local network_containers=$(docker network inspect docker_data-pipeline-network --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || echo "")
-    if echo "$network_containers" | grep -q "postgres" && echo "$network_containers" | grep -q "kafka"; then
-        success "All services are connected to the data-pipeline network"
-    else
-        error "Network connectivity issue detected"
-        exit 1
-    fi
-    
-    success "All infrastructure services started successfully"
+    success "Alerting pipeline started successfully and monitoring in real-time 🚨"
 }
 
-# =============================================================================
-# DATA GENERATION PHASE
-# =============================================================================
+# Add countdown function after the existing functions
+countdown_timer() {
+    local duration=$1
+    local message=$2
+    
+    log "$message"
+    
+    while [ $duration -gt 0 ]; do
+        printf "\r${YELLOW}⏳ Time remaining: %02d:%02d${NC}" $((duration/60)) $((duration%60))
+        sleep 1
+        duration=$((duration-1))
+    done
+    printf "\n"
+}
+
+# Add S3 validation function
+wait_for_s3_data() {
+    local s3_path=$1
+    local max_wait=$2
+    local description=$3
+    
+    log "Waiting for $description to be available in S3..."
+    log "Checking path: $s3_path"
+    
+    local elapsed=0
+    while [ $elapsed -lt $max_wait ]; do
+        if aws s3 ls "$s3_path" >/dev/null 2>&1; then
+            local file_count=$(aws s3 ls "$s3_path" --recursive | wc -l)
+            if [ $file_count -gt 0 ]; then
+                success "$description found in S3 ($file_count files)"
+                return 0
+            fi
+        fi
+        
+        printf "\r${YELLOW} Waiting for S3 data... %ds elapsed${NC}" $elapsed
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    
+    printf "\n"
+    warning "$description not found in S3 after ${max_wait}s, continuing anyway..."
+    return 1
+}
 
 start_iot_producer() {
     step "Starting IoT data producer..."
     
-    log "Starting IoT producer for $PRODUCER_DURATION seconds..."
-    cd sensor-simulator
-    docker compose up -d
-    cd ..
+    export PROCESS_DATE="$PROCESS_DATE"
+    AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" S3_BUCKET="$S3_BUCKET" docker compose -f "$DOCKER_COMPOSE_FILE" --profile producer up -d iot-producer
     
-    log "IoT producer started, generating data for $PRODUCER_DURATION seconds..."
-    sleep $PRODUCER_DURATION
+    # Add countdown timer
+    countdown_timer $PRODUCER_DURATION "IoT producer started, generating data for $PRODUCER_DURATION seconds..."
     
     log "Stopping IoT producer..."
-    cd sensor-simulator
-    docker compose stop
-    cd ..
+    docker compose -f "$DOCKER_COMPOSE_FILE" --profile producer stop iot-producer
     
     success "IoT data generation completed"
 }
@@ -276,89 +379,91 @@ start_iot_producer() {
 start_kafka_ingestion() {
     step "Starting Kafka to S3 ingestion..."
     
-    log "Starting Kafka ingestion service for $INGESTION_DURATION seconds..."
-    export SPARK_APPLICATION_MAIN_CLASS="ingestion.KafkaToS3Ingestion"
     export PROCESS_DATE="$PROCESS_DATE"
+    AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" S3_BUCKET="$S3_BUCKET" docker compose -f "$DOCKER_COMPOSE_FILE" --profile ingestion up -d kafka-ingestion
     
-    docker compose -f docker/docker-compose.pipeline.yml --profile unified up -d unified-job
-    
-    log "Kafka ingestion running, streaming data to S3 for $INGESTION_DURATION seconds..."
-    sleep $INGESTION_DURATION
+    # Add countdown timer
+    countdown_timer $INGESTION_DURATION "Kafka ingestion running, streaming data to S3 for $INGESTION_DURATION seconds..."
     
     log "Stopping Kafka ingestion..."
-    docker compose -f docker/docker-compose.pipeline.yml stop unified-job
-    docker compose -f docker/docker-compose.pipeline.yml rm -f unified-job
+    docker compose -f "$DOCKER_COMPOSE_FILE" --profile ingestion stop kafka-ingestion
+    
+    # Wait for raw data to be available in S3
+    local raw_s3_path="s3://${S3_BUCKET:-inde-aws-datalake}/raw/iot-data/"
+    wait_for_s3_data "$raw_s3_path" 60 "Raw IoT data"
     
     success "Kafka to S3 ingestion completed"
 }
 
-# =============================================================================
-# DATA PROCESSING PHASE
-# =============================================================================
-
-run_bronze_job() {
-    step "Running Bronze job..."
+run_data_processing() {
+    step "Running data processing pipeline..."
     
-    log "Processing raw data to Bronze layer for date: $PROCESS_DATE"
-    export SPARK_APPLICATION_MAIN_CLASS="processing.BronzeJob"
     export PROCESS_DATE="$PROCESS_DATE"
     
-    if docker compose -f docker/docker-compose.pipeline.yml --profile unified up unified-job; then
+    # Run Bronze job first
+    log "🥉 Starting Bronze job..."
+    if AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" S3_BUCKET="$S3_BUCKET" docker compose -f "$DOCKER_COMPOSE_FILE" run --rm bronze-job; then
         success "Bronze job completed successfully"
+        
+        # Wait for Bronze data to be committed to S3
+        local bronze_s3_path="s3://${S3_BUCKET:-inde-aws-datalake}/bronze/iot-data/"
+        wait_for_s3_data "$bronze_s3_path" 90 "Bronze layer data"
+        
+        # Add buffer time for S3 eventual consistency
+        log "Adding ${S3_BUFFER_TIME}s buffer for S3 eventual consistency..."
+        sleep $S3_BUFFER_TIME
+        
     else
         error "Bronze job failed"
+        docker compose -f "$DOCKER_COMPOSE_FILE" logs bronze-job
         exit 1
     fi
-}
-
-run_silver_job() {
-    step "Running Silver job..."
     
-    log "Processing Bronze to Silver layer for date: $PROCESS_DATE"
-    export SPARK_APPLICATION_MAIN_CLASS="processing.SilverJob"
-    export PROCESS_DATE="$PROCESS_DATE"
-    
-    if docker compose -f docker/docker-compose.pipeline.yml --profile unified up unified-job; then
+    # Run Silver job after Bronze is confirmed
+    log "🥈 Starting Silver job..."
+    if AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" S3_BUCKET="$S3_BUCKET" docker compose -f "$DOCKER_COMPOSE_FILE" run --rm silver-job; then
         success "Silver job completed successfully"
+        
+        # Wait for Silver data to be committed to S3
+        local silver_s3_path="s3://${S3_BUCKET:-inde-aws-datalake}/silver/iot-data/"
+        wait_for_s3_data "$silver_s3_path" 90 "Silver layer data"
+        
+        # Add buffer time for S3 eventual consistency
+        log "Adding ${S3_BUFFER_TIME}s buffer for S3 eventual consistency..."
+        sleep $S3_BUFFER_TIME
+        
     else
         error "Silver job failed"
+        docker compose -f "$DOCKER_COMPOSE_FILE" logs silver-job
         exit 1
     fi
-}
-
-run_gold_job() {
-    step "Running Gold job..."
     
-    log "Processing Silver to Gold layer for date: $PROCESS_DATE"
-    export SPARK_APPLICATION_MAIN_CLASS="processing.GoldJob"
-    export PROCESS_DATE="$PROCESS_DATE"
-    
-    if docker compose -f docker/docker-compose.pipeline.yml --profile unified up unified-job; then
+    # Run Gold job after Silver is confirmed
+    log "🥇 Starting Gold job..."
+    if AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" S3_BUCKET="$S3_BUCKET" docker compose -f "$DOCKER_COMPOSE_FILE" run --rm gold-job; then
         success "Gold job completed successfully"
+        
+        # Wait for Gold data to be committed to S3
+        local gold_s3_path="s3://${S3_BUCKET:-inde-aws-datalake}/gold/"
+        wait_for_s3_data "$gold_s3_path" 90 "Gold layer data"
+        
     else
         error "Gold job failed"
+        docker compose -f "$DOCKER_COMPOSE_FILE" logs gold-job
         exit 1
     fi
-}
-
-run_grafana_export() {
-    step "Running Grafana export job..."
     
-    log "Exporting Gold data to PostgreSQL for Grafana for date: $PROCESS_DATE"
-    export SPARK_APPLICATION_MAIN_CLASS="processing.GrafanaExportJob"
-    export PROCESS_DATE="$PROCESS_DATE"
-    
-    if docker compose -f docker/docker-compose.pipeline.yml --profile unified up unified-job; then
+    # Run Grafana export last
+    log "📊 Starting Grafana export..."
+    if AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" S3_BUCKET="$S3_BUCKET" docker compose -f "$DOCKER_COMPOSE_FILE" run --rm grafana-export; then
         success "Grafana export completed successfully"
     else
-        error "Grafana export failed"
-        exit 1
+        warning "Grafana export failed, but continuing..."
+        docker compose -f "$DOCKER_COMPOSE_FILE" logs grafana-export
     fi
+    
+    success "Complete data processing pipeline finished successfully! 🎉"
 }
-
-# =============================================================================
-# MONITORING & CLEANUP
-# =============================================================================
 
 show_pipeline_status() {
     step "Pipeline Status Summary"
@@ -372,32 +477,38 @@ show_pipeline_status() {
     log "Process Date: $PROCESS_DATE"
     log "Producer Duration: $PRODUCER_DURATION seconds"
     log "Ingestion Duration: $INGESTION_DURATION seconds"
+    log "Docker Compose File: $DOCKER_COMPOSE_FILE"
     
     echo ""
     log "Running Docker Services:"
-    echo "Core Services:"
-    docker compose -f docker/docker-compose.yml ps
-    echo ""
-    echo "Grafana Services:"
-    docker compose -f grafana-config/docker-compose.yml ps
+    docker compose -f "$DOCKER_COMPOSE_FILE" ps
     
     echo ""
-    log " Access Points:"
+    log "🌐 Access Points:"
     echo "  Grafana Dashboard:   http://localhost:3001 (admin/admin)"
     echo "  Spark Master UI:     http://localhost:8081"
     echo "  PostgreSQL:          localhost:5432 (grafana/grafana)"
-    echo "  Kafka (if needed):    localhost:9092"
-    echo "  S3 Data Lake:        Check your S3 bucket: ${S3_BUCKET:-your-bucket}"
+    echo "  Kafka:               localhost:9092"
+    echo "  S3 Data Lake:        ${S3_BUCKET:-your-bucket}"
+    
+    echo ""
+    log "🚨 Real-time Alerting Pipeline:"
+    echo "  • Starts early and monitors data from the beginning"
+    echo "  • Continuous monitoring of IoT sensor data"
+    echo "  • Anomaly detection and real-time alerting"
+    echo "  • Email notifications for critical events"
+    echo "  • Checkpoint storage for fault tolerance"
+    echo "  • View alerting logs: docker compose -f $DOCKER_COMPOSE_FILE logs iot-alerting-pipeline -f"
     
     echo ""
     if [ "$KEEP_SERVICES_RUNNING" = true ]; then
-        success "Pipeline completed successfully! Services are kept running for monitoring"
+        success "Pipeline completed successfully! Services are kept running for monitoring 🎉"
         echo ""
         log "To stop all services later, run:"
-        echo "  ./scripts/stop-all-services.sh"
+        echo "  docker compose -f $DOCKER_COMPOSE_FILE down"
         echo ""
-        log "To stop with cleanup, run:"
-        echo "  ./scripts/stop-all-services.sh --clean"
+        log "To stop with cleanup (remove volumes), run:"
+        echo "  docker compose -f $DOCKER_COMPOSE_FILE down --volumes"
     else
         success "Pipeline execution completed successfully! 🎉"
     fi
@@ -407,23 +518,32 @@ cleanup_services() {
     if [ "$CLEANUP_ON_EXIT" = true ]; then
         step "Cleaning up services..."
         
-        log "Stopping all services..."
-        docker compose -f docker/docker-compose.pipeline.yml down 2>/dev/null || true
-        docker compose -f grafana-config/docker-compose.yml down 2>/dev/null || true
-        docker compose -f docker/docker-compose.yml down 2>/dev/null || true
+        log "Stopping and removing processing, producer, and ingestion containers..."
+        # Stop and remove specific containers but preserve infrastructure
+        docker compose -f "$DOCKER_COMPOSE_FILE" --profile producer down || true
+        docker compose -f "$DOCKER_COMPOSE_FILE" --profile ingestion down || true
         
-        log "Removing unused containers and networks..."
-        docker system prune -f --volumes 2>/dev/null || true
+        # Remove any stopped processing containers
+        docker container rm -f bronze-job silver-job gold-job grafana-export 2>/dev/null || true
         
-        success "Cleanup completed"
+        log "Removing unused networks and volumes..."
+        docker network prune -f 2>/dev/null || true
+        
+        success "Cleanup completed (Infrastructure services preserved)"
+        
+        log "📊 Preserved services:"
+        log "  Grafana Dashboard:   http://localhost:3001 (admin/admin)"
+        log "  PostgreSQL:          localhost:5432 (grafana/grafana)"
+        log "  Spark Cluster:       http://localhost:8081"
+        log "  Kafka:               localhost:9092"
+        log "  Alerting Pipeline:   Real-time monitoring active 🚨"
+        echo ""
+        log "To stop all services including monitoring, run:"
+        echo "  docker compose -f $DOCKER_COMPOSE_FILE down"
     else
-        log "Services are kept running. Use ./scripts/stop-all-services.sh to stop them later."
+        log "Services are kept running. Use 'docker compose -f $DOCKER_COMPOSE_FILE down' to stop them later."
     fi
 }
-
-# =============================================================================
-# MAIN WORKFLOW
-# =============================================================================
 
 main() {
     while [[ $# -gt 0 ]]; do
@@ -438,6 +558,10 @@ main() {
                 ;;
             --ingestion-duration)
                 INGESTION_DURATION="$2"
+                shift 2
+                ;;
+            --s3-buffer-time)
+                S3_BUFFER_TIME="$2"
                 shift 2
                 ;;
             --skip-build)
@@ -471,15 +595,15 @@ main() {
     
     print_banner
     
+    # Execute pipeline phases
     check_prerequisites
     build_images
     start_infrastructure
+    setup_kafka_topic
+    start_alerting_pipeline
     start_iot_producer
     start_kafka_ingestion
-    run_bronze_job
-    run_silver_job
-    run_gold_job
-    run_grafana_export
+    run_data_processing
     show_pipeline_status
     
     if [ "$CLEANUP_ON_EXIT" = false ]; then
@@ -490,11 +614,11 @@ main() {
     
     if [ "$KEEP_SERVICES_RUNNING" = true ]; then
         log "Press Ctrl+C to exit (services will continue running)"
-        log "Or run './scripts/stop-all-services.sh' in another terminal to stop services"
+        log "Or run 'docker compose -f $DOCKER_COMPOSE_FILE down' in another terminal to stop services"
         while true; do
             sleep 60
         done
     fi
 }
 
-main "$@" 
+main "$@"
