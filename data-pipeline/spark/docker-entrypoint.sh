@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Set environment variables for Spark
 export SPARK_HOME=${SPARK_HOME:-/opt/bitnami/spark}
 export SPARK_LOCAL_IP=${SPARK_LOCAL_IP:-0.0.0.0}
 export SPARK_DRIVER_BIND_ADDRESS=${SPARK_DRIVER_BIND_ADDRESS:-0.0.0.0}
@@ -8,13 +7,10 @@ export SPARK_DRIVER_HOST=${SPARK_DRIVER_HOST:-localhost}
 export SPARK_DRIVER_PORT=${SPARK_DRIVER_PORT:-4040}
 export SPARK_BLOCKMANAGER_PORT=${SPARK_BLOCKMANAGER_PORT:-4041}
 
-# Set HOME environment variable to fix Ivy repository issue
 export HOME=/tmp
 
-# Set Hadoop authentication to simple (no Kerberos)
 export HADOOP_USER_NAME=${HADOOP_USER_NAME:-spark}
 
-# Set default values if not provided
 SPARK_APPLICATION_MAIN_CLASS=${SPARK_APPLICATION_MAIN_CLASS:-"processing.BronzeJob"}
 SPARK_MASTER=${SPARK_MASTER:-"local[*]"}
 SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-"2g"}
@@ -29,7 +25,6 @@ echo "  Driver Memory: $SPARK_DRIVER_MEMORY"
 echo "  Executor Memory: $SPARK_EXECUTOR_MEMORY"
 echo "  Process Date: $PROCESS_DATE"
 
-# Execute the command
 exec $SPARK_HOME/bin/spark-submit \
   --class "$SPARK_APPLICATION_MAIN_CLASS" \
   --master "$SPARK_MASTER" \
