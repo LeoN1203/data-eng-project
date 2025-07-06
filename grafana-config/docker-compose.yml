@@ -8,11 +8,11 @@ services:
       POSTGRES_PASSWORD: grafana
       POSTGRES_DB: grafana_db
     ports:
-      - "5432:5432"  # Changed from 5433 to 5432 to match pipeline expectations
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
-      - data-pipeline-network  # Added network configuration
+      - data-pipeline-network
 
   grafana:
     image: grafana/grafana:latest
@@ -28,13 +28,12 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
     networks:
-      - data-pipeline-network  # Added network configuration
+      - data-pipeline-network
 
-# Updated network configuration to reference the existing network by its actual name
 networks:
   data-pipeline-network:
-    name: docker_data-pipeline-network  # Use the actual network name created by the main docker-compose
-    external: true  # This references the network created by the pipeline docker-compose
+    name: docker_data-pipeline-network
+    external: true
 
 volumes:
   pgdata:
