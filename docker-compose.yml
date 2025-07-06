@@ -353,8 +353,8 @@ services:
 
   iot-alerting-pipeline:
     build:
-      context: ./alerting-pipeline/spark
-      dockerfile: ../../docker/Dockerfile.alert
+      context: .
+      dockerfile: ./docker/Dockerfile.alert
 
     container_name: iot-alerting-consumer
     depends_on:
@@ -375,6 +375,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM:-iot-alerts@company.com}
       EMAIL_SUBJECT_PREFIX: "[IoT Alert - Compose]"
+      JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=80.0 -Djdk.lang.processReaperUseDefaultStackSize=true"
     volumes:
       - iot-checkpoints:/tmp/kafka-alerting-checkpoints
     networks:

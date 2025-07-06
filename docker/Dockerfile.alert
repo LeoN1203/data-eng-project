@@ -42,16 +42,16 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Set working directory
 WORKDIR /app
 
-# Copy the staged application from builder
-COPY --from=builder /app/target/universal/stage/ ./
+# Copy the staged application from builder and set ownership in one step
+COPY --from=builder --chown=appuser:appuser /app/target/universal/stage/ ./
 
-# Copy configuration files
-COPY alerting-pipeline/spark/src/main/resources/application.conf ./conf/
-COPY alerting-pipeline/spark/src/main/resources/log4j.properties ./conf/
+# Copy configuration files with proper ownership
+COPY --chown=appuser:appuser alerting-pipeline/spark/src/main/resources/application.conf ./conf/
+COPY --chown=appuser:appuser alerting-pipeline/spark/src/main/resources/log4j.properties ./conf/
 
-# Create directories for checkpoints and logs
+# Create directories for checkpoints and logs with proper ownership
 RUN mkdir -p /tmp/kafka-alerting-checkpoints /app/logs && \
-    chown -R appuser:appuser /app /tmp/kafka-alerting-checkpoints
+    chown -R appuser:appuser /tmp/kafka-alerting-checkpoints /app/logs
 
 # Switch to non-root user
 USER appuser
