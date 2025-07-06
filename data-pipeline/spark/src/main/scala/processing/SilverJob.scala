@@ -356,13 +356,13 @@ object SilverJob {
       println(f"Invalid Percentage: $invalidPercentage%.2f%%")
       
       if (validPercentage >= 95) {
-        println("✓ EXCELLENT data quality!")
+        println("EXCELLENT data quality!")
       } else if (validPercentage >= 90) {
-        println("✓ GOOD data quality")
+        println("GOOD data quality")
       } else if (validPercentage >= 80) {
-        println("⚠ ACCEPTABLE data quality")
+        println("ACCEPTABLE data quality")
       } else {
-        println("✗ POOR data quality - investigate data sources")
+        println("POOR data quality - investigate data sources")
       }
     }
     println("=" * 50)
