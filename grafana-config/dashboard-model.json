@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "eeqtw1tl5n1fke"
+        "uid": "der10nznjzapsc"
       },
       "fieldConfig": {
         "defaults": {
@@ -77,7 +77,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT DISTINCT location \nFROM daily_report \nWHERE location = ${location:sqlstring}",
+          "rawSql": "SELECT location FROM daily_report WHERE location IN (${location:singlequote})",
           "refId": "A",
           "sql": {
             "columns": [
@@ -104,30 +104,30 @@
           "table": "daily_report"
         }
       ],
-      "title": "Locations",
+      "title": "📍 Location: ${location} - IoT Metrics",
       "type": "stat"
     },
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "eeqtw1tl5n1fke"
+        "uid": "der10nznjzapsc"
       },
       "fieldConfig": {
         "defaults": {
           "mappings": [],
           "thresholds": {
-            "mode": "percentage",
+            "mode": "absolute",
             "steps": [
               {
-                "color": "green"
-              },
-              {
-                "color": "semi-dark-green",
-                "value": 70
+                "color": "dark-blue"
               },
               {
                 "color": "dark-green",
-                "value": 100
+                "value": 15
+              },
+              {
+                "color": "red",
+                "value": 20
               }
             ]
           }
@@ -151,7 +151,7 @@
           "values": true
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": false,
+        "showThresholdMarkers": true,
         "sizing": "auto"
       },
       "pluginVersion": "12.0.2",
@@ -160,7 +160,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "-- Field Coverage Status\nSELECT\n  location,\n  COUNT(DISTINCT device_id) as total_sensors,\n  SUM(total_readings) as total_readings,\n  CAST(AVG(active_hours) AS DECIMAL(10,1)) as avg_uptime,\n  CAST(AVG(quality_score) * 100 AS DECIMAL(10,1)) as data_quality\nFROM device_status\nWHERE location = ${location:sqlstring}\n  AND report_date >= CURRENT_DATE - INTERVAL '1 day'\nGROUP BY location",
+          "rawSql": "SELECT \n    avg_temperature as \"Average Temperature\",\n    min_temperature as \"Min Temperature\", \n    max_temperature as \"Max Temperature\",\n    (max_temperature - min_temperature) as \"Temperature Range\"\nFROM daily_report \nWHERE location = ${location}",
           "refId": "A",
           "sql": {
             "columns": [
@@ -178,7 +178,8 @@
               }
             ],
             "limit": 50
-          }
+          },
+          "table": "daily_report"
         }
       ],
       "title": "Field Coverage Status",
@@ -187,7 +188,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "eeqtw1tl5n1fke"
+        "uid": "der10nznjzapsc"
       },
       "fieldConfig": {
         "defaults": {
@@ -265,7 +266,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "eeqtw1tl5n1fke"
+        "uid": "der10nznjzapsc"
       },
       "fieldConfig": {
         "defaults": {
@@ -376,24 +377,27 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "eeqtw1tl5n1fke"
+        "uid": "der10nznjzapsc"
       },
       "fieldConfig": {
         "defaults": {
           "mappings": [],
           "thresholds": {
-            "mode": "absolute",
+            "mode": "percentage",
             "steps": [
               {
-                "color": "dark-green"
+                "color": "green"
+              },
+              {
+                "color": "orange",
+                "value": 70
               },
               {
                 "color": "red",
-                "value": 30
+                "value": 85
               }
             ]
-          },
-          "unit": "short"
+          }
         },
         "overrides": []
       },
@@ -405,11 +409,9 @@
       },
       "id": 5,
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
+        "minVizHeight": 75,
+        "minVizWidth": 75,
         "orientation": "auto",
-        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -417,9 +419,9 @@
           "fields": "",
           "values": false
         },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
       "pluginVersion": "12.0.2",
       "targets": [
@@ -427,7 +429,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "-- Optimal Growing Hours per Day (from hourly data)\nSELECT\n  DATE(time) as date,\n  COUNT(*) as optimal_hours,\n  CAST(AVG(temperature) AS DECIMAL(10,1)) as avg_temp_optimal_hours\nFROM iot_timeseries\nWHERE location = ${location:sqlstring}\n  AND temperature BETWEEN 18 AND 28\n  AND humidity BETWEEN 45 AND 75\n  AND time >= CURRENT_DATE - INTERVAL '7 days'\nGROUP BY DATE(time)\nORDER BY date DESC",
+          "rawSql": "SELECT \n    avg_humidity as \"Humidity %\",\n    avg_pressure as \"Pressure\",\n    quality_score as \"Data Quality\",\n    comfort_percentage as \"Comfort Level %\"\nFROM daily_report \nWHERE location = ${location}",
           "refId": "A",
           "sql": {
             "columns": [
@@ -449,12 +451,12 @@
         }
       ],
       "title": "Optimal Growing Hours per Day (from hourly data)",
-      "type": "stat"
+      "type": "gauge"
     },
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "eeqtw1tl5n1fke"
+        "uid": "der10nznjzapsc"
       },
       "fieldConfig": {
         "defaults": {
@@ -555,15 +557,15 @@
       {
         "current": {
           "text": [
-            "office_floor_2"
+            "field-a"
           ],
           "value": [
-            "office_floor_2"
+            "field-a"
           ]
         },
         "definition": "SELECT DISTINCT location FROM daily_report ORDER BY location",
         "description": "The location of the sensor data you would like to see",
-        "includeAll": true,
+        "includeAll": false,
         "label": "Location",
         "multi": true,
         "name": "location",
@@ -583,5 +585,5 @@
   "timezone": "browser",
   "title": "INDE-DASHBOARD",
   "uid": "79e217b1-bf85-4cbf-b1b7-e4972c5ecf4b",
-  "version": 8
+  "version": 5
 }
