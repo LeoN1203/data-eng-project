@@ -156,10 +156,8 @@ object SilverJob {
       col("data_source"),
       col("ingestion_job"),
       col("record_id"),
-      
-      // Sensor data columns (aligned with IoTSensorData structure)
       col("deviceId"),
-      col("deviceType"), // Now derived in Bronze layer
+      col("deviceType"),
       col("location"),
       col("temperature"),
       col("humidity"),
@@ -168,7 +166,6 @@ object SilverJob {
       col("light"),
       col("acidity"),
       from_unixtime(col("timestamp") / 1000).cast("timestamp").as("sensor_timestamp"),
-      // Create sensor_metadata struct from available columns
       struct(
         col("battery_level"),
         col("signal_strength"),
@@ -182,43 +179,34 @@ object SilverJob {
    */
   def applyDataQualityRules(df: DataFrame): DataFrame = {
     df
-      // Basic null checks
       .withColumn("deviceId_valid", col("deviceId").isNotNull && length(col("deviceId")) > 0)
       .withColumn("deviceType_valid", col("deviceType").isNotNull && length(col("deviceType")) > 0)
       .withColumn("timestamp_valid", col("sensor_timestamp").isNotNull)
       
-      // Temperature validation (-50°C to 100°C)
       .withColumn("temperature_valid", 
         col("temperature").isNotNull && 
         col("temperature").between(-50, 100))
       
-      // Humidity validation (0% to 100%)
       .withColumn("humidity_valid", 
         col("humidity").isNotNull && 
         col("humidity").between(0, 100))
       
-      // Pressure validation (500 to 1500 hPa - reasonable atmospheric range)
       .withColumn("pressure_valid", 
         col("pressure").isNotNull && 
         col("pressure").between(500, 1500))
       
-      // Location validation
       .withColumn("location_valid", col("location").isNotNull && length(col("location")) > 0)
       
-      // Motion sensor validation (boolean)
       .withColumn("motion_valid", col("motion").isNotNull)
       
-      // Light sensor validation (0 to 100000 lux)
       .withColumn("light_valid", 
         col("light").isNotNull && 
         col("light").between(0, 100000))
       
-      // Acidity validation (pH 0-14)
       .withColumn("acidity_valid", 
         col("acidity").isNotNull && 
         col("acidity").between(0, 14))
       
-      // Overall validity check
       .withColumn("is_valid_record",
         col("deviceId_valid") && 
         col("deviceType_valid") && 
@@ -231,7 +219,6 @@ object SilverJob {
         col("light_valid") && 
         col("acidity_valid"))
       
-      // Data quality score (0-1)
       .withColumn("data_quality_score",
         (col("deviceId_valid").cast("int") +
          col("deviceType_valid").cast("int") +
@@ -250,12 +237,10 @@ object SilverJob {
    */
   def enrichWithBusinessLogic(df: DataFrame): DataFrame = {
     df
-      // Temperature enrichment
       .withColumn("temperature_celsius", col("temperature"))
       .withColumn("temperature_fahrenheit", col("temperature") * 9/5 + 32)
       .withColumn("temperature_kelvin", col("temperature") + 273.15)
       
-      // Temperature categories
       .withColumn("temperature_category",
         when(col("temperature") < 0, "freezing")
         .when(col("temperature").between(0, 15), "cold")
@@ -263,20 +248,17 @@ object SilverJob {
         .when(col("temperature").between(26, 35), "warm")
         .otherwise("hot"))
       
-      // Humidity categories
       .withColumn("humidity_category",
         when(col("humidity") < 30, "dry")
         .when(col("humidity").between(30, 60), "comfortable")
         .when(col("humidity").between(61, 80), "humid")
         .otherwise("very_humid"))
       
-      // Pressure categories (relative to sea level: 1013.25 hPa)
       .withColumn("pressure_category",
         when(col("pressure") < 1000, "low")
         .when(col("pressure").between(1000, 1025), "normal")
         .otherwise("high"))
       
-      // Light categories (lux levels)
       .withColumn("light_category",
         when(col("light") < 1, "dark")
         .when(col("light").between(1, 50), "dim")
@@ -284,7 +266,6 @@ object SilverJob {
         .when(col("light").between(501, 10000), "bright")
         .otherwise("very_bright"))
       
-      // Acidity categories (pH levels)
       .withColumn("acidity_category",
         when(col("acidity") < 3, "very_acidic")
         .when(col("acidity").between(3, 6), "acidic")
@@ -292,12 +273,10 @@ object SilverJob {
         .when(col("acidity").between(8, 11), "basic")
         .otherwise("very_basic"))
       
-      // Motion status
       .withColumn("motion_status",
         when(col("motion") === true, "active")
         .otherwise("inactive"))
       
-      // Comfort index (considering temperature, humidity, and light)
       .withColumn("comfort_index",
         when(col("temperature_category") === "comfortable" && 
              col("humidity_category") === "comfortable" && 
@@ -306,24 +285,20 @@ object SilverJob {
              col("humidity_category").isin("comfortable", "humid"), "good")
         .otherwise("poor"))
       
-      // Time-based enrichment
       .withColumn("hour_of_day", hour(col("sensor_timestamp")))
       .withColumn("day_of_week", dayofweek(col("sensor_timestamp")))
-      .withColumn("is_weekend", dayofweek(col("sensor_timestamp")).isin(1, 7)) // Sunday=1, Saturday=7
+      .withColumn("is_weekend", dayofweek(col("sensor_timestamp")).isin(1, 7))
       
-      // Seasonal classification (Northern Hemisphere)
       .withColumn("season",
         when(month(col("sensor_timestamp")).isin(12, 1, 2), "winter")
         .when(month(col("sensor_timestamp")).isin(3, 4, 5), "spring")
         .when(month(col("sensor_timestamp")).isin(6, 7, 8), "summer")
         .otherwise("autumn"))
       
-      // Extract battery level from metadata if available
       .withColumn("battery_level", col("sensor_metadata.battery_level"))
       .withColumn("signal_strength", col("sensor_metadata.signal_strength"))
       .withColumn("firmware_version", col("sensor_metadata.firmware_version"))
       
-      // Device health indicators
       .withColumn("low_battery", col("battery_level") < 20)
       .withColumn("poor_signal", col("signal_strength") < -80)
       .withColumn("device_health_status",

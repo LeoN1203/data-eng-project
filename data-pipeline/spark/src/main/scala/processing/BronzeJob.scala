@@ -21,7 +21,6 @@ object BronzeJob extends App {
     .master("local[*]")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-    // S3 Configuration
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
@@ -131,7 +130,6 @@ object BronzeJob extends App {
     val bronzeData = parsedData
       .withColumn("bronze_ingestion_time", current_timestamp())
       .withColumn("bronze_date", current_date())
-      // Use sensor timestamp for partitioning to match Kafka ingestion
       .withColumn("year", year(from_unixtime(col("timestamp") / 1000)))
       .withColumn("month", month(from_unixtime(col("timestamp") / 1000)))
       .withColumn("day", dayofmonth(from_unixtime(col("timestamp") / 1000)))
@@ -139,7 +137,6 @@ object BronzeJob extends App {
       .withColumn("ingestion_job", lit("bronze-batch-job-v2"))
       .withColumn("record_id", monotonically_increasing_id())
       .withColumn("processing_status", lit("ingested"))
-      // Derive deviceType from location for downstream compatibility
       .withColumn("deviceType", 
         when(col("location").startsWith("warehouse"), "temperature-sensor")
         .when(col("location").startsWith("field"), "environmental-sensor")
@@ -151,18 +148,16 @@ object BronzeJob extends App {
     println("Sample Bronze data:")
     bronzeData.show(5, truncate = false)
     
-    // Write to Bronze layer with partitioning
     println(s"Writing Bronze data to: $bronzePath")
     bronzeData.write
       .format("parquet")
-      .mode("overwrite") // Use overwrite for batch processing
+      .mode("overwrite")
       .partitionBy("year", "month", "day")
       .save(bronzePath)
     
     val finalRecordCount = bronzeData.count()
-    println(s"✓ Bronze ingestion completed - $finalRecordCount records written to: $bronzePath")
+    println(s"Bronze ingestion completed - $finalRecordCount records written to: $bronzePath")
     
-    // Show some quality metrics
     showBronzeQualityMetrics(bronzeData)
   }
   
@@ -211,7 +206,6 @@ object BronzeJob extends App {
     val bronzeData = batchData
       .withColumn("bronze_ingestion_time", current_timestamp())
       .withColumn("bronze_date", current_date())
-      // Use sensor timestamp for partitioning consistency
       .withColumn("year", year(from_unixtime(col("timestamp") / 1000)))
       .withColumn("month", month(from_unixtime(col("timestamp") / 1000)))
       .withColumn("day", dayofmonth(from_unixtime(col("timestamp") / 1000)))
@@ -248,7 +242,6 @@ object BronzeJob extends App {
     println("=== Bronze Data Quality Report ===")
     qualityMetrics.show()
 
-    // Show device type distribution
     bronzeData
       .groupBy("deviceType")
       .count()

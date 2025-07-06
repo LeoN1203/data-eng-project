@@ -17,7 +17,6 @@ RUN mkdir -p /tmp/.ivy2 && \
     chmod -R 755 /app /tmp/.ivy2
 USER 1001
 
-# Simplified Spark submit entrypoint
 ENTRYPOINT spark-submit \
   --class ingestion.KafkaS3DataLakePipeline \
   --master "${SPARK_MASTER}" \

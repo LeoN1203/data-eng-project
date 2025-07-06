@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Bronze Job - Raw data ingestion
   bronze-job:
     build:
       context: ../data-pipeline/spark
@@ -20,7 +19,6 @@ services:
       - bronze
       - all
 
-  # Silver Job - Data quality and enrichment
   silver-job:
     build:
       context: ../data-pipeline/spark
@@ -41,7 +39,6 @@ services:
       - silver
       - all
 
-  # Gold Job - Analytics and reporting
   gold-job:
     build:
       context: ../data-pipeline/spark
@@ -62,7 +59,6 @@ services:
       - gold
       - all
 
-  # Grafana Export Job - Export Gold data to PostgreSQL for dashboards
   grafana-export-job:
     build:
       context: ../data-pipeline/spark
@@ -73,7 +69,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
       - PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
-      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}  # Changed from localhost to postgres (container name)
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_DB=${POSTGRES_DB:-grafana_db}
       - POSTGRES_USER=${POSTGRES_USER:-grafana}
@@ -88,7 +84,6 @@ services:
       - grafana
       - all
 
-  # Unified Job - Can run any job based on environment variables
   unified-job:
     build:
       context: ../data-pipeline/spark

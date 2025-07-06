@@ -15,7 +15,6 @@
 
 set -e
 
-# Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -29,7 +28,6 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Logging functions
 log() {
     echo -e "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')] INFO:${NC} $1"
 }
@@ -50,18 +48,14 @@ step() {
     echo -e "${PURPLE}[$(date '+%Y-%m-%d %H:%M:%S')] STEP:${NC} $1"
 }
 
-# Configuration variables
+
 PROCESS_DATE=${PROCESS_DATE:-$(date '+%Y-%m-%d')}
 PRODUCER_DURATION=${PRODUCER_DURATION:-300}  # 5 minutes default
 INGESTION_DURATION=${INGESTION_DURATION:-360}  # 6 minutes default
 CLEANUP_ON_EXIT=${CLEANUP_ON_EXIT:-false}  # Changed default to false to keep containers running
 SKIP_BUILD=${SKIP_BUILD:-false}
 SKIP_INFRASTRUCTURE=${SKIP_INFRASTRUCTURE:-false}
-KEEP_SERVICES_RUNNING=${KEEP_SERVICES_RUNNING:-true}  # New flag to keep services running
-
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
+KEEP_SERVICES_RUNNING=${KEEP_SERVICES_RUNNING:-true}
 
 print_banner() {
     echo -e "${CYAN}"
@@ -111,19 +105,16 @@ show_usage() {
 check_prerequisites() {
     step "Checking prerequisites..."
     
-    # Check Docker
     if ! docker ps >/dev/null 2>&1; then
         error "Docker is not running. Please start Docker first."
         exit 1
     fi
     
-    # Check Docker Compose
     if ! docker compose version >/dev/null 2>&1; then
         error "Docker Compose is not installed or not in PATH."
         exit 1
     fi
     
-    # Check .env file
     if [ ! -f ".env" ]; then
         error ".env file not found. Please create it with AWS credentials."
         echo "Example .env file:"
@@ -134,16 +125,13 @@ check_prerequisites() {
         exit 1
     fi
     
-    # Source environment variables
     source ".env"
     
-    # Check AWS credentials
     if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
         error "AWS credentials not set. Please check your .env file."
         exit 1
     fi
     
-    # Check sbt for building
     if [ "$SKIP_BUILD" = false ] && ! sbt --version >/dev/null 2>&1; then
         error "sbt is not installed. Please install sbt or use --skip-build."
         exit 1
@@ -151,10 +139,6 @@ check_prerequisites() {
     
     success "Prerequisites check passed"
 }
-
-# =============================================================================
-# BUILD PHASE
-# =============================================================================
 
 build_images() {
     if [ "$SKIP_BUILD" = true ]; then
@@ -173,14 +157,9 @@ build_images() {
     fi
 }
 
-# =============================================================================
-# INFRASTRUCTURE PHASE
-# =============================================================================
-
 check_and_free_ports() {
     step "Checking required ports..."
     
-    # Check if port 5432 is in use
     if lsof -i :5432 >/dev/null 2>&1; then
         warning "Port 5432 is in use. Attempting to free it..."
         sudo fuser -k 5432/tcp >/dev/null 2>&1 || true
@@ -193,7 +172,6 @@ check_and_free_ports() {
         fi
     fi
     
-    # Check if port 3001 is in use
     if lsof -i :3001 >/dev/null 2>&1; then
         warning "Port 3001 is in use. Attempting to free it..."
         sudo fuser -k 3001/tcp >/dev/null 2>&1 || true
@@ -211,24 +189,20 @@ start_infrastructure() {
     
     step "Starting infrastructure services..."
     
-    # Check and free required ports
     check_and_free_ports
     
-    # Start core pipeline services (Kafka, Spark) - this creates the network
     log "Starting core pipeline services (Kafka, Zookeeper, Spark)..."
     docker compose -f docker/docker-compose.yml up -d
     
     log "Waiting for core services to be ready..."
     sleep 30
     
-    # Start PostgreSQL and Grafana services
     log "Starting PostgreSQL and Grafana services..."
     docker compose -f grafana-config/docker-compose.yml up -d
     
     log "Waiting for PostgreSQL to be ready..."
     sleep 15
     
-    # Check if Kafka is healthy
     local retries=0
     local max_retries=10
     while [ $retries -lt $max_retries ]; do
@@ -247,7 +221,6 @@ start_infrastructure() {
         exit 1
     fi
     
-    # Check PostgreSQL connectivity
     retries=0
     while [ $retries -lt $max_retries ]; do
         if docker exec postgres pg_isready -U grafana >/dev/null 2>&1; then
@@ -265,7 +238,6 @@ start_infrastructure() {
         exit 1
     fi
     
-    # Verify network connectivity
     log "Verifying network connectivity..."
     local network_containers=$(docker network inspect docker_data-pipeline-network --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || echo "")
     if echo "$network_containers" | grep -q "postgres" && echo "$network_containers" | grep -q "kafka"; then
@@ -286,7 +258,6 @@ start_iot_producer() {
     step "Starting IoT data producer..."
     
     log "Starting IoT producer for $PRODUCER_DURATION seconds..."
-    # Use the sensor simulator instead of kafka-broker compose
     cd sensor-simulator
     docker compose up -d
     cd ..
@@ -306,7 +277,6 @@ start_kafka_ingestion() {
     step "Starting Kafka to S3 ingestion..."
     
     log "Starting Kafka ingestion service for $INGESTION_DURATION seconds..."
-    # Run the ingestion job using the unified approach
     export SPARK_APPLICATION_MAIN_CLASS="ingestion.KafkaToS3Ingestion"
     export PROCESS_DATE="$PROCESS_DATE"
     
@@ -395,7 +365,7 @@ show_pipeline_status() {
     
     echo ""
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                           📊 PIPELINE STATUS SUMMARY 📊                      ║${NC}"
+    echo -e "${CYAN}║                           PIPELINE STATUS SUMMARY                             ║${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -412,16 +382,16 @@ show_pipeline_status() {
     docker compose -f grafana-config/docker-compose.yml ps
     
     echo ""
-    log "🎯 Access Points:"
-    echo "  📊 Grafana Dashboard:   http://localhost:3001 (admin/admin)"
-    echo "  🚀 Spark Master UI:     http://localhost:8081"
-    echo "  🗄️  PostgreSQL:          localhost:5432 (grafana/grafana)"
-    echo "  📈 Kafka (if needed):    localhost:9092"
-    echo "  🏗️  S3 Data Lake:        Check your S3 bucket: ${S3_BUCKET:-your-bucket}"
+    log " Access Points:"
+    echo "  Grafana Dashboard:   http://localhost:3001 (admin/admin)"
+    echo "  Spark Master UI:     http://localhost:8081"
+    echo "  PostgreSQL:          localhost:5432 (grafana/grafana)"
+    echo "  Kafka (if needed):    localhost:9092"
+    echo "  S3 Data Lake:        Check your S3 bucket: ${S3_BUCKET:-your-bucket}"
     
     echo ""
     if [ "$KEEP_SERVICES_RUNNING" = true ]; then
-        success "Pipeline completed successfully! Services are kept running for monitoring 🎉"
+        success "Pipeline completed successfully! Services are kept running for monitoring"
         echo ""
         log "To stop all services later, run:"
         echo "  ./scripts/stop-all-services.sh"
@@ -456,7 +426,6 @@ cleanup_services() {
 # =============================================================================
 
 main() {
-    # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
             --date)
@@ -496,15 +465,12 @@ main() {
         esac
     done
     
-    # Setup trap for cleanup on exit only if requested
     if [ "$CLEANUP_ON_EXIT" = true ]; then
         trap cleanup_services EXIT
     fi
     
-    # Print banner
     print_banner
     
-    # Execute workflow
     check_prerequisites
     build_images
     start_infrastructure
@@ -516,23 +482,19 @@ main() {
     run_grafana_export
     show_pipeline_status
     
-    # Call cleanup explicitly if not using trap
     if [ "$CLEANUP_ON_EXIT" = false ]; then
         cleanup_services
     fi
     
     log "Master workflow completed successfully! 🚀"
     
-    # Keep script running if services should stay up
     if [ "$KEEP_SERVICES_RUNNING" = true ]; then
         log "Press Ctrl+C to exit (services will continue running)"
         log "Or run './scripts/stop-all-services.sh' in another terminal to stop services"
-        # Keep the script alive but allow clean exit
         while true; do
             sleep 60
         done
     fi
 }
 
-# Execute main function with all arguments
 main "$@" 
