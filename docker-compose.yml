@@ -46,7 +46,7 @@ services:
     image: confluentinc/cp-kafka:7.2.1
     container_name: kafka
     depends_on:
-      - zookeeper:
+      zookeeper:
         condition: service_healthy
     ports:
       - "9092:9092"
@@ -125,7 +125,7 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
-      - postgres:
+      postgres:
         condition: service_healthy
     volumes:
       - grafana_data:/var/lib/grafana
@@ -166,7 +166,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-east-1}
     depends_on:
-      - spark-master:
+      spark-master:
         condition: service_started
     networks:
       - iot-pipeline-net
@@ -186,7 +186,7 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-east-1}
     depends_on:
-      - spark-master:
+      spark-master:
         condition: service_started
     networks:
       - iot-pipeline-net
@@ -352,7 +352,10 @@ services:
 
 
   iot-alerting-pipeline:
-    image: iot-alerting-pipeline:latest
+    build:
+      context: ./alerting-pipeline/spark
+      dockerfile: ../../docker/Dockerfile.alert
+
     container_name: iot-alerting-consumer
     depends_on:
       - kafka
