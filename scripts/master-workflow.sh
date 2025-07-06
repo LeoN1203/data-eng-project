@@ -546,6 +546,46 @@ cleanup_services() {
 }
 
 main() {
+    if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        case $1 in
+            test-messages)
+                step "Preparing infrastructure for testing..."
+                check_prerequisites
+                if [ "$SKIP_BUILD" = false ]; then
+                    build_images
+                fi
+                start_infrastructure
+                send_test_messages
+                log "Test completed. Services are still running."
+                exit 0
+                ;;
+            status)
+                step "Pipeline Status"
+                echo "Core Services:"
+                docker compose -f docker/docker-compose.yml ps
+                echo ""
+                echo "Grafana Services:"
+                docker compose -f grafana-config/docker-compose.yml ps
+                exit 0
+                ;;
+            stop)
+                step "Stopping all services..."
+                docker compose -f docker/docker-compose.pipeline.yml down 2>/dev/null || true
+                docker compose -f grafana-config/docker-compose.yml down 2>/dev/null || true
+                docker compose -f docker/docker-compose.yml down 2>/dev/null || true
+                success "All services stopped"
+                exit 0
+                ;;
+            help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                # If it's not a recognized command, treat as full workflow with argument parsing
+                ;;
+        esac
+    fi
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --date)
