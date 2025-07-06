@@ -1,0 +1,140 @@
+networks:
+  iot-net:
+    driver: bridge
+
+services:
+  # Zookeeper service
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    container_name: zookeeper
+    networks:
+      - iot-net
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    networks:
+      - iot-net
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:9093,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9093 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  # Spark Master
+  spark-master:
+    image: bitnami/spark:3.3.2
+    container_name: spark-master
+    networks:
+      - iot-net
+    ports:
+      - "7077:7077"
+      - "8080:8080"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+
+  # Spark Worker
+  spark-worker:
+    image: bitnami/spark:3.3.2
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    networks:
+      - iot-net
+    ports:
+      - "8081:8081"
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_CORES=2
+
+  # IoT Data Producer
+  iot-producer:
+    build:
+      context: ../../sensor-simulator/
+      dockerfile: Dockerfile
+    container_name: iot-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - iot-net
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - KAFKA_TOPIC=iot-sensor-data
+      - PRODUCER_INTERVAL=5000
+      - KAFKA_CLIENT_ID=iot-producer-1
+      - KAFKA_MAX_BLOCK_MS=120000
+      - KAFKA_METADATA_MAX_AGE_MS=120000
+      - KAFKA_REQUEST_TIMEOUT_MS=60000
+      - KAFKA_DELIVERY_TIMEOUT_MS=120000
+    # restart: unless-stopped
+
+  # Spark Ingest Service
+  spark-ingest:
+    build:
+      context: ../../data-pipeline/spark/
+      dockerfile: Dockerfile
+    container_name: spark-ingest
+    depends_on:
+      spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    networks:
+      - iot-net
+    environment:
+      # Set the user for Hadoop/Spark. This is the main fix.
+      - HADOOP_USER_NAME=spark
+      # This is the key fix: Force system properties into the spark-submit JVM.
+      - SPARK_SUBMIT_OPTS=-Duser.name=spark -Dhadoop.security.authentication=simple
+      # AWS credentials
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-eu-north-1}
+
+      # Application configuration
+      - SPARK_MASTER=spark://spark-master:7077
+      - S3_BUCKET=${S3_BUCKET:-my-iot-bucket}
+      # The rest of your application-specific env vars can remain
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9093
+      - KAFKA_TOPIC=iot-sensor-data
+      - CHECKPOINT_LOCATION=s3a://${S3_BUCKET:-my-iot-bucket}/checkpoints/iot-pipeline
+      
+      # Kafka configuration
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=1
+      - KAFKA_MIN_INSYNC_REPLICAS=1
+
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  kafka-data:
+  zookeeper-data:
+  spark-logs:

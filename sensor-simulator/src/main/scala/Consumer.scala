@@ -246,7 +246,7 @@ class IoTDataConsumer(topicName: String, consumerGroup: String) {
 object IoTDataConsumer {
   def main(args: Array[String]): Unit = {
     val topicName = "iot-sensor-data"
-    val consumerGroup = "iot-processing-group"
+    val consumerGroup = "iot-sensor-spark-consumer"
 
     val consumer = new IoTDataConsumer(topicName, consumerGroup)
     val processor = new consumer.BasicDataProcessor()

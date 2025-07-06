@@ -3,6 +3,7 @@
 *.log
 .metals/
 .bloop/
+.env
 
 # sbt specific
 .cache/

@@ -1,14 +1,26 @@
+import sbtassembly.AssemblyPlugin.autoImport._
+import com.typesafe.sbt.packager.docker.DockerPlugin.autoImport._
+import sbt.Keys._
+
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.12.17" // Compatible with Spark 3.5.0
+ThisBuild / scalaVersion := "2.12.18" // Match bitnami Spark containers
 ThisBuild / organization := "scala"
+
+val sparkVersion =
+  "3.3.2"
+val kafkaVersion = "3.2.0"
+val hadoopVersion = "3.3.4"
+val awsVersion = "1.12.262"
 
 // Project definition
 lazy val root = (project in file("."))
-  .enablePlugins(JavaAppPackaging)
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(
-    name := "data-pipeline-ingestion",
-
+    name := "data-pipeline-scala",
+    mainClass in assembly := Some(
+      "ingestion.KafkaS3DataLakePipeline" // Updated to correct main class
+    ),
     // Compiler options for better code quality and performance
     scalacOptions ++= Seq(
       "-encoding",
@@ -20,7 +32,6 @@ lazy val root = (project in file("."))
       "-Ywarn-dead-code", // Warn about dead code
       "-Ywarn-numeric-widen", // Warn about numeric widening
       "-Ywarn-value-discard" // Warn about discarded values
-      // "-Xfatal-warnings" // Turn warnings into errors (remove for development)
     ),
 
     // JVM options for better performance
@@ -30,22 +41,34 @@ lazy val root = (project in file("."))
       "-XX:+UseStringDeduplication" // Reduce memory usage
     ),
 
-    // Dependency management
+    // Dependency management - keeping their versions but compatible with Scala 2.12
     libraryDependencies ++= Seq(
-      // Apache Spark dependencies
-      "org.apache.spark" %% "spark-core" % "3.5.0",
-      "org.apache.spark" %% "spark-sql" % "3.5.0",
-      "org.apache.spark" %% "spark-streaming" % "3.5.0",
-      "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0",
-      "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.5.0",
-      
-      // Hadoop/AWS dependencies for S3 support
-      "org.apache.hadoop" % "hadoop-aws" % "3.3.6",
-      "com.amazonaws" % "aws-java-sdk-bundle" % "1.12.565",
+      // Spark Core
+      "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
+      "org.apache.spark" %% "spark-sql" % sparkVersion % "provided",
+      "org.apache.spark" %% "spark-streaming" % sparkVersion % "provided",
+      // new one
+      "org.apache.spark" %% "spark-tags" % sparkVersion,
+      "org.apache.spark" %% "spark-unsafe" % sparkVersion,
+
+      // AWS S3 Support
+      "org.apache.hadoop" % "hadoop-aws" % hadoopVersion,
+      "com.amazonaws" % "aws-java-sdk-bundle" % awsVersion,
 
       // Kafka dependencies for message streaming
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
+      "org.apache.kafka" % "kafka-clients" % kafkaVersion,
+      "org.apache.kafka" %% "kafka-streams-scala" % kafkaVersion,
+      "org.apache.spark" %% "spark-sql-kafka-0-10" % sparkVersion,
+
+      // Delta Lake for data lake operations
+      "io.delta" %% "delta-core" % "2.4.0",
+
+      // AWS S3 support (from your original config)
+      "org.apache.hadoop" % "hadoop-aws" % "3.3.4",
+      "com.amazonaws" % "aws-java-sdk-bundle" % "1.12.565" exclude("com.fasterxml.jackson.core", "jackson-databind"),
+
+      // PostgreSQL JDBC driver for Grafana analytics (from your original config)
+      "org.postgresql" % "postgresql" % "42.7.1",
 
       // JSON processing
       "io.circe" %% "circe-core" % "0.14.6",
@@ -62,50 +85,32 @@ lazy val root = (project in file("."))
       // Testing dependencies
       "org.scalatest" %% "scalatest" % "3.2.17" % Test,
       "org.scalatestplus" %% "mockito-4-6" % "3.2.15.0" % Test,
-      "io.github.embeddedkafka" %% "embedded-kafka" % "3.6.0" % Test,
-      "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.40.15" % Test,
-      "com.dimafeng" %% "testcontainers-scala-kafka" % "0.40.15" % Test,
 
       // Metrics and monitoring
       "io.micrometer" % "micrometer-core" % "1.12.0",
       "io.micrometer" % "micrometer-registry-prometheus" % "1.12.0",
       "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    ),    // Test configuration
-    Test / parallelExecution := false, // Run tests sequentially for integration tests
+    ),
+
+    // Test configuration
+    Test / parallelExecution := false,
     Test / testOptions += Tests.Argument(
       TestFrameworks.ScalaTest,
       "-oD"
-    ) // Show test durations
-  )
+    ),
 
-// Additional sub-projects for modular architecture
-lazy val common = (project in file("modules/common"))
-  .settings(
-    name := "data-pipeline-common",
-    libraryDependencies ++= Seq(
-      "io.circe" %% "circe-core" % "0.14.6",
-      "io.circe" %% "circe-generic" % "0.14.6"
-    )
-  )
+    // Assembly plugin for creating fat JARs
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", xs @ _*) => MergeStrategy.first
+      case PathList("META-INF", xs @ _*)             => MergeStrategy.discard
+      case "application.conf"                        => MergeStrategy.concat
+      case "reference.conf"                          => MergeStrategy.concat
+      case _                                         => MergeStrategy.first
+    },
 
-lazy val producers = (project in file("modules/producers"))
-  .dependsOn(common)
-  .settings(
-    name := "data-pipeline-producers",
-    libraryDependencies ++= Seq(
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
-      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    )
-  )
-
-lazy val consumers = (project in file("modules/consumers"))
-  .dependsOn(common)
-  .settings(
-    name := "data-pipeline-consumers",
-    libraryDependencies ++= Seq(
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
-      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    )
+    // Docker configuration for containerization
+    Docker / packageName := "data-pipeline-spark",
+    Docker / version := version.value,
+    dockerBaseImage := "openjdk:11-jre-slim",
+    dockerExposedPorts := Seq(8080, 9092)
   )

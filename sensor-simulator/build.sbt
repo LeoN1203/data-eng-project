@@ -1,13 +1,20 @@
+import sbtassembly.AssemblyPlugin.autoImport._
+import com.typesafe.sbt.packager.docker.DockerPlugin.autoImport._
+import sbt.Keys._
+
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.13.12" // Latest stable Scala 2.13
+ThisBuild / scalaVersion := "2.13.13" // Latest stable Scala 2.13
 ThisBuild / organization := "scala"
 
 // Project definition
 lazy val root = (project in file("."))
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(
     name := "data-pipeline-scala",
-
+    assembly / mainClass := Some(
+      "scala.IoTDataProducer" // Main class for the application
+    ), // Main class for the application
     // Compiler options for better code quality and performance
     scalacOptions ++= Seq(
       "-encoding",
@@ -34,6 +41,11 @@ lazy val root = (project in file("."))
       // Kafka dependencies for message streaming
       "org.apache.kafka" % "kafka-clients" % "3.6.0",
       "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
+
+      // Spark dependencies for data processing
+      "org.apache.spark" %% "spark-core" % "3.5.1",
+      "org.apache.spark" %% "spark-sql" % "3.5.1",
+      "org.apache.spark" %% "spark-streaming" % "3.5.1",
 
       // Akka for actor-based concurrency (useful for IoT device simulation)
       "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
@@ -85,33 +97,33 @@ lazy val root = (project in file("."))
   )
 
 // Additional sub-projects for modular architecture
-lazy val common = (project in file("modules/common"))
-  .settings(
-    name := "data-pipeline-common",
-    libraryDependencies ++= Seq(
-      "io.circe" %% "circe-core" % "0.14.6",
-      "io.circe" %% "circe-generic" % "0.14.6"
-    )
-  )
+// lazy val common = (project in file("modules/common"))
+//   .settings(
+//     name := "data-pipeline-common",
+//     libraryDependencies ++= Seq(
+//       "io.circe" %% "circe-core" % "0.14.6",
+//       "io.circe" %% "circe-generic" % "0.14.6"
+//     )
+//   )
 
-lazy val producers = (project in file("modules/producers"))
-  .dependsOn(common)
-  .settings(
-    name := "data-pipeline-producers",
-    libraryDependencies ++= Seq(
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
-      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    )
-  )
+// lazy val producers = (project in file("modules/producers"))
+//   .dependsOn(common)
+//   .settings(
+//     name := "data-pipeline-producers",
+//     libraryDependencies ++= Seq(
+//       "org.apache.kafka" % "kafka-clients" % "3.6.0",
+//       "com.typesafe.akka" %% "akka-actor-typed" % "2.8.5",
+//       "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
+//     )
+//   )
 
-lazy val consumers = (project in file("modules/consumers"))
-  .dependsOn(common)
-  .settings(
-    name := "data-pipeline-consumers",
-    libraryDependencies ++= Seq(
-      "org.apache.kafka" % "kafka-clients" % "3.6.0",
-      "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
-      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
-    )
-  )
+// lazy val consumers = (project in file("modules/consumers"))
+//   .dependsOn(common)
+//   .settings(
+//     name := "data-pipeline-consumers",
+//     libraryDependencies ++= Seq(
+//       "org.apache.kafka" % "kafka-clients" % "3.6.0",
+//       "org.apache.kafka" %% "kafka-streams-scala" % "3.6.0",
+//       "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.17.0"
+//     )
+//   )

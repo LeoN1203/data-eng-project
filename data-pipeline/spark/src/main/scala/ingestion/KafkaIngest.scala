@@ -1,3 +1,5 @@
+package ingestion
+
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.{OutputMode, Trigger}
@@ -7,33 +9,45 @@ import java.util.concurrent.TimeUnit
 object KafkaS3DataLakePipeline {
 
   def main(args: Array[String]): Unit = {
-
     // Initialize Spark Session
     val spark = SparkSession
       .builder()
       .appName("IoT-Kafka-S3-DataLake")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+      .config("spark.hadoop.security.authentication", "simple") // Add this
+      .config("spark.hadoop.hadoop.security.authorization", "false") // Add this
+      // .config("spark.authenticate", "false")
+      // .config("spark.network.auth.enabled", "false")
+      // .config("spark.hadoop.hadoop.security.authentication", "simple")
+      // .config("spark.hadoop.hadoop.security.authorization", "false")
+      // .config("spark.hadoop.hadoop.security.use.subject.creds.only", "false")
+      // .config(
+      //   "spark.hadoop.fs.s3a.aws.credentials.provider",
+      //   "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+      // )
+      .config("spark.hadoop.fs.s3a.endpoint", "s3.eu-north-1.amazonaws.com")
       .config(
         "spark.hadoop.fs.s3a.impl",
         "org.apache.hadoop.fs.s3a.S3AFileSystem"
       )
       .config(
         "spark.hadoop.fs.s3a.aws.credentials.provider",
-        "com.amazonaws.auth.DefaultAWSCredentialsProviderChain"
+        "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
       )
+      .config("spark.jars.ivy", "/tmp/.ivy2")
       .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
 
     // Configuration parameters
     val kafkaBootstrapServers =
-      "localhost:9092" // Update with your Kafka brokers
+      "kafka:9093" // Updated to use unified docker-compose container name with internal port
     val kafkaTopic = "iot-sensor-data" // Update with your topic name
     val s3BucketPath =
-      "s3a://your-datalake-bucket/iot-data/" // Update with your S3 bucket
+      "s3a://inde-aws-datalake/raw/iot-data/" // Aligned with Bronze job expectations
     val checkpointLocation =
-      "s3a://your-datalake-bucket/checkpoints/iot-pipeline"
+      "s3a://inde-aws-datalake/checkpoints/"
 
     try {
       // Read from Kafka stream
@@ -68,9 +82,16 @@ object KafkaS3DataLakePipeline {
       .format("kafka")
       .option("kafka.bootstrap.servers", bootstrapServers)
       .option("subscribe", topic)
-      .option("startingOffsets", "latest") // Use "earliest" for historical data
+      .option(
+        "startingOffsets",
+        "earliest"
+      ) // Use "earliest" for historical data
       .option("failOnDataLoss", "false")
-      .option("kafka.consumer.group.id", "iot-data-lake-consumer")
+      .option("kafka.group.id", "iot-sensor-spark-consumer")
+      .option("kafka.metadata.max.age.ms", "5000")
+      .option("kafka.max.poll.interval.ms", "60000")
+      .option("kafka.request.timeout.ms", "30000")
+      .option("minPartitions", "3")
       .load()
   }
 
@@ -79,14 +100,17 @@ object KafkaS3DataLakePipeline {
   def processIoTData(kafkaStream: DataFrame): DataFrame = {
     import kafkaStream.sparkSession.implicits._
 
-    // Define schema for IoT sensor data
+    // Define schema for IoT sensor data - aligned with actual producer structure
     val iotSchema = StructType(
       Seq(
         StructField("deviceId", StringType, nullable = false),
-        StructField("deviceType", StringType, nullable = false),
+        StructField("temperature", DoubleType, nullable = true),
+        StructField("humidity", DoubleType, nullable = true),
+        StructField("pressure", DoubleType, nullable = true),
+        StructField("motion", BooleanType, nullable = true),
+        StructField("light", DoubleType, nullable = true),
+        StructField("acidity", DoubleType, nullable = true),
         StructField("location", StringType, nullable = false),
-        StructField("value", DoubleType, nullable = false),
-        StructField("unit", StringType, nullable = false),
         StructField("timestamp", LongType, nullable = false),
         StructField(
           "metadata",
@@ -113,7 +137,7 @@ object KafkaS3DataLakePipeline {
       )
       // Parse JSON data
       .withColumn("parsed_data", from_json(col("raw_data"), iotSchema))
-      // Extract fields from parsed JSON
+      // Extract fields from parsed JSON and keep original structure
       .select(
         col("kafka_key"),
         col("topic"),
@@ -121,15 +145,21 @@ object KafkaS3DataLakePipeline {
         col("offset"),
         col("kafka_timestamp"),
         col("parsed_data.deviceId"),
-        col("parsed_data.deviceType"),
-        from_unixtime(col("parsed_data.timestamp"))
+        from_unixtime(col("parsed_data.timestamp") / 1000)
           .cast("timestamp")
           .as("sensor_timestamp"),
         col("parsed_data.temperature"),
         col("parsed_data.humidity"),
         col("parsed_data.pressure"),
-        col("parsed_data.location.latitude"),
-        col("parsed_data.location.longitude")
+        col("parsed_data.motion"),
+        col("parsed_data.light"),
+        col("parsed_data.acidity"),
+        col("parsed_data.location"),
+        col("parsed_data.metadata.battery_level").as("battery_level"),
+        col("parsed_data.metadata.signal_strength").as("signal_strength"),
+        col("parsed_data.metadata.firmware_version").as("firmware_version"),
+        // Keep original raw data for downstream processing
+        col("raw_data").as("original_json")
       )
       // Add processing metadata
       .withColumn("processing_time", current_timestamp())
@@ -141,15 +171,24 @@ object KafkaS3DataLakePipeline {
       .filter(col("deviceId").isNotNull && col("sensor_timestamp").isNotNull)
   }
 
-  /** Write processed data to S3 Data Lake with partitioning
+  /** Write processed data to S3 Data Lake as JSON files with partitioning
     */
   def writeToS3DataLake(
       processedStream: DataFrame,
       s3Path: String,
       checkpointLocation: String
   ): Unit = {
-    processedStream.writeStream
-      .format("parquet")
+    // Create a simplified structure for JSON output
+    val jsonStream = processedStream.select(
+      col("original_json").as("value"),
+      col("year"),
+      col("month"),
+      col("day"),
+      col("hour")
+    )
+
+    jsonStream.writeStream
+      .format("json")
       .outputMode(OutputMode.Append())
       .option("checkpointLocation", checkpointLocation)
       .option("path", s3Path)
@@ -157,13 +196,12 @@ object KafkaS3DataLakePipeline {
         "year",
         "month",
         "day",
-        "hour",
-        "deviceType"
+        "hour"
       ) // Partition for efficient querying
       .trigger(
         Trigger.ProcessingTime(30, TimeUnit.SECONDS)
       ) // Process every 30 seconds
-      .queryName("iot-s3-sink")
+      .queryName("iot-s3-json-sink")
       .start()
   }
 
