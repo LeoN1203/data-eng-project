@@ -31,7 +31,6 @@ object SilverJob {
     val spark = SparkSession
       .builder()
       .appName("Silver-Data-Processing")
-      .master("local[*]")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
       .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")

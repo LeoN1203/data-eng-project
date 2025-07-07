@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/spark-apps
 
-COPY data-pipeline/spark/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar /opt/spark-apps/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
+COPY data-pipeline/spark/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar /opt/spark-apps/app.jar
 
 ENV SPARK_APPLICATION_MAIN_CLASS="processing.BronzeJob"
 ENV SPARK_MASTER="local[*]"

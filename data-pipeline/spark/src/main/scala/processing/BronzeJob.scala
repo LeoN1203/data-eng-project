@@ -18,7 +18,6 @@ object BronzeJob extends App {
 
   private val spark = SparkSession.builder()
     .appName("Bronze-Data-Ingestion")
-    .master("local[*]")
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")

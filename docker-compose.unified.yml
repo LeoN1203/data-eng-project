@@ -177,6 +177,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.unified
+    hostname: kafka-ingestion
     container_name: kafka-ingestion
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -184,7 +185,7 @@ services:
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-north-1}
       - S3_BUCKET=${S3_BUCKET:-inde-aws-datalake}
       - SPARK_APPLICATION_MAIN_CLASS=ingestion.KafkaS3DataLakePipeline
-      - SPARK_MASTER=local[*]
+      - SPARK_MASTER=spark://spark-master:7077
       - SPARK_DRIVER_MEMORY=2g
       - SPARK_EXECUTOR_MEMORY=2g
       - PROCESS_DATE=${PROCESS_DATE}
@@ -193,6 +194,10 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      spark-master:
+        condition: service_healthy
+      spark-worker-1:
+        condition: service_started
     volumes:
       - ./logs:/opt/spark-apps/logs
     networks:
@@ -273,101 +278,77 @@ services:
   # DATA PROCESSING JOBS
   # ================================
   bronze-job:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.unified
     image: pipeline-unified:latest
+    hostname: bronze-job
     container_name: bronze-job
     environment:
-      - SPARK_HOME=/opt/bitnami/spark
-      - SPARK_MASTER=local[*]
-      - SPARK_DRIVER_MEMORY=2g
-      - SPARK_EXECUTOR_MEMORY=2g
-      - SPARK_TOTAL_EXECUTOR_CORES=4
+      - SPARK_APPLICATION_MAIN_CLASS=processing.BronzeJob
+      - SPARK_MASTER=spark://spark-master:7077
       - PROCESS_DATE=${PROCESS_DATE}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      spark-worker-1:
+        condition: service_started
     volumes:
-      - ./data-pipeline/spark:/opt/spark-apps
-    entrypoint: []
-    command: >
-      /opt/bitnami/spark/bin/spark-submit
-      --class processing.BronzeJob
-      --master local[*]
-      --deploy-mode client
-      --driver-memory 2g
-      --executor-memory 2g
-      --total-executor-cores 4
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376
-      --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID}
-      --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY}
-      --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
-      --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
-      /opt/spark-apps/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
-      ${PROCESS_DATE}
+      - ./logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
 
   silver-job:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.unified
     image: pipeline-unified:latest
+    hostname: silver-job
     container_name: silver-job
     environment:
-      - SPARK_HOME=/opt/bitnami/spark
-      - SPARK_MASTER=local[*]
-      - SPARK_DRIVER_MEMORY=2g
-      - SPARK_EXECUTOR_MEMORY=2g
-      - SPARK_TOTAL_EXECUTOR_CORES=4
+      - SPARK_APPLICATION_MAIN_CLASS=processing.SilverJob
+      - SPARK_MASTER=spark://spark-master:7077
       - PROCESS_DATE=${PROCESS_DATE}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      spark-worker-1:
+        condition: service_started
     volumes:
-      - ./data-pipeline/spark:/opt/spark-apps
-    entrypoint: []
-    command: >
-      /opt/bitnami/spark/bin/spark-submit
-      --class processing.SilverJob
-      --master local[*]
-      --deploy-mode client
-      --driver-memory 2g
-      --executor-memory 2g
-      --total-executor-cores 4
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376
-      --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID}
-      --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY}
-      --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
-      --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
-      /opt/spark-apps/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
-      ${PROCESS_DATE}
+      - ./logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
 
   gold-job:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.unified
     image: pipeline-unified:latest
+    hostname: gold-job
     container_name: gold-job
     environment:
-      - SPARK_HOME=/opt/bitnami/spark
-      - SPARK_MASTER=local[*]
-      - SPARK_DRIVER_MEMORY=2g
-      - SPARK_EXECUTOR_MEMORY=2g
-      - SPARK_TOTAL_EXECUTOR_CORES=4
+      - SPARK_APPLICATION_MAIN_CLASS=processing.GoldJob
+      - SPARK_MASTER=spark://spark-master:7077
       - PROCESS_DATE=${PROCESS_DATE}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      spark-worker-1:
+        condition: service_started
     volumes:
-      - ./data-pipeline/spark:/opt/spark-apps
-    entrypoint: []
-    command: >
-      /opt/bitnami/spark/bin/spark-submit
-      --class processing.GoldJob
-      --master local[*]
-      --deploy-mode client
-      --driver-memory 2g
-      --executor-memory 2g
-      --total-executor-cores 4
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376
-      --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID}
-      --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY}
-      --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
-      --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
-      /opt/spark-apps/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
-      ${PROCESS_DATE}
-
+      - ./logs:/opt/spark-apps/logs
+    networks:
+      - data-pipeline-network
+      
   grafana-export:
     image: pipeline-unified:latest
     container_name: grafana-export

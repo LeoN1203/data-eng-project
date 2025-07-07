@@ -29,7 +29,6 @@ object GrafanaExportJob {
     val spark = SparkSession
       .builder()
       .appName("Grafana-Export-Job")
-      .master("local[*]")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
       .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
