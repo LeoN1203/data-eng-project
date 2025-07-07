@@ -2,7 +2,7 @@
 
 In a world where food security is paramount, this project aims to enhance agricultural productivity and sustainability through advanced data engineering techniques.
 
-It is a scalable, containerized data engineering platform for **sensor data ingestion**, **stream processing**, and **alert detection**, built with **Apache Kafka**, **Apache Spark**, **Flink**, and **Grafana**, with data flowing to an **S3-based data lake**.
+This project is a scalable, containerized data engineering platform for **sensor data ingestion**, **stream processing**, and **alert detection**, built with **Apache Kafka**, **Apache Spark** and **Grafana**, with **AWS S3** and **PostgreSQL** as storage. **Docker** and **Docker compose** are used for conterinerization and orchestration.
 
 ---
 
@@ -12,58 +12,40 @@ This project simulates and ingests IoT sensor data into Kafka, processes it via 
 - **Data Pipeline**: Kafka → Spark → S3
 - **Alerting Pipeline**: Spark jobs identify and forward anomalies
 - **Monitoring**: Grafana dashboards fed from processed data
-- **Simulation**: A `sensor-simulator` generates test data
+- **Simulation**: A `sensor-simulator` service generates test data
 
 ---
 
 ## 📊 Architecture
 
-```mermaid
-graph TD
-    SensorSimulator[Sensor Simulator]
-    Kafka[Kafka Broker]
-    SparkIngest[Spark Bronze Job]
-    SparkSilver[Spark Silver Job]
-    SparkGold[Spark Gold + Alert Job]
-    Grafana[Grafana Dashboard]
-    S3DataLake[S3 Data Lake]
-
-    SensorSimulator --> Kafka
-    Kafka --> SparkIngest
-    SparkIngest --> S3DataLake
-    SparkIngest --> SparkSilver
-    SparkSilver --> S3DataLake
-    SparkSilver --> SparkGold
-    SparkGold --> S3DataLake
-    SparkGold --> Grafana
-```
+![Architecture Diagram](images/architecture.png)
 
 ---
 
 ## 📂 Project Structure (Simplified)
 
 ```
+alerting-pipeline/
+  └── spark/                               # Contains Core logic for alerts
 data-pipeline/
   └── spark/
-      ├── src/main/scala/ingestion/KafkaIngest.scala
-      └── src/main/scala/processing/
+      ├── src/main/scala/ingestion/        # Spark ingestion logic
+      |    └── KafkaIngest.scala
+      └── src/main/scala/processing/       # Contains data processing / grafana Spark jobs
           ├── BronzeJob.scala
           ├── SilverJob.scala
           ├── GoldJob.scala
-          ├── AlertDetection.scala
           └── GrafanaExportJob.scala
-[INSERT ALERT PIPELINE HERE]
-sensor-simulator/
+sensor-simulator/                          # Core data simulation logic
   └── src/main/scala/
       └── Producer.scala
-
-scripts/
-  ├── run-pipeline.sh
-  └── run-spark-job.sh
-
-docker/
+scripts/                                   # Helper scripts
+  ├── master-workflow.sh
+  └── ...
+docker/                                    # Dockerfiles and Compose files             
   ├── docker-compose.yml
   └── docker-compose.pipeline.yml
+docker-compose.unified.yml                 # Unified Main Docker Compose for all services
 ```
 
 ---
@@ -79,21 +61,19 @@ docker/
 - **Function**: Cleans and enriches Bronze data, stores in **Silver S3 layer**.
 
 ### 🟡 Aggregation (Gold Layer + Alerts)
-- **Script**: `GoldJob.scala`, `AlertDetection.scala`
+- **Script**: `GoldJob.scala`
 - **Function**:
-  - Aggregates Silver data to generate KPIs.
-  - Runs alert rules (e.g., threshold breaches).
+  - Aggregates Silver data to generate key metrics.
   - Exports data for Grafana dashboards.
 
 ---
 
 ## 🚨 Alert Pipeline
 
-- **Input**: Processed data from Silver Layer
-- **Detection Logic**: Encoded in `AlertDetection.scala`
+- **Input**: Kafka topic with sensor data
+- **Detection Logic**: Encoded in `KafkaAlertingPipeline.scala`
 - **Outputs**:
-  - Alert messages to a Kafka topic (optional)
-  - Structured data to S3 and Grafana
+  - Alert messages to an email client
 
 ---
 
@@ -101,12 +81,14 @@ docker/
 
 | Service      | Description                      |
 |--------------|----------------------------------|
-| Kafka        | Messaging system for ingestion   |
-| Spark        | Streaming job executor           |
+| Kafka        | Data broker and streaming   |
+| Spark        | Streaming / Batch job executor           |
+| Zookeeper   | Kafka cluster management         |
 | Grafana      | Dashboard visualization          |
 | Sensor Sim   | Data generation (simulator)      |
-| S3 (mock)    | Data lake (minio or real S3)     |
-| Flink (stub) | Placeholder for stream jobs      |
+| AWS S3     | Data lake storage      |
+| PostgreSQL   | Analytics storage                |
+| Alerting Pipeline | Anomaly detection and alerting |
 
 ---
 
@@ -115,7 +97,7 @@ docker/
 ### 1. ✅ Prerequisites
 - Docker + Docker Compose
 - AWS credentials (for S3 access)
-- JDK 8+ and Scala (if building manually)
+- JDK 8+ and Scala
 
 ### 2. 📁 Configure `.env`
 
@@ -124,42 +106,15 @@ Copy and edit:
 cp .env.example .env
 ```
 
-Fill in your AWS and Kafka/Spark variables.
+Fill in your AWS, Kafka/Spark and SMTP email variables.
 
-### 3. 🐳 Build and Run Containers
+### 3. 🚀 Run the Data Pipeline
+
+The `./scripts/master-workflow.sh` script orchestrates the entire pipeline, including building the docker images, starting services and running the jobs.
 
 ```bash
-# Build all containers
-./scripts/build-containers.sh
-
-# Start Kafka, Zookeeper, Spark Master/Workers, Grafana
-docker-compose -f docker/docker-compose.yml up -d
-
-# Run full pipeline setup (Kafka, Spark jobs)
-docker-compose -f docker/docker-compose.pipeline.yml up -d
-```
-
----
-
-## 🚀 Run the Data Pipeline
-
-### Start Kafka & Spark Jobs
-```bash
-./scripts/start-kafka.sh
-./scripts/run-pipeline.sh
-```
-
-Or run jobs individually:
-```bash
-./scripts/run-spark-job.sh bronze
-./scripts/run-spark-job.sh silver
-./scripts/run-spark-job.sh gold
-```
-
-### Simulate Sensor Data
-```bash
-cd sensor-simulator
-sbt run
+# Run master workflow script
+./scipts/master-workflow.sh
 ```
 
 ---
@@ -172,6 +127,12 @@ sbt run
 - Default credentials: `admin / admin`
 - Dashboards auto-loaded from `grafana-config/dashboard-model.json`
 
+### Alert setup
+
+- Configure SMTP variables in `.env` to receive email alerts.
+- Alerts are sent to the configured email when thresholds are breached.
+- Alert detection logic is in `KafkaAlertingPipeline.scala`.
+
 ---
 
 ## ☁️ Data Lake
@@ -181,19 +142,10 @@ sbt run
   - `/bronze/`
   - `/silver/`
   - `/gold/`
-- Supports real AWS S3 or local mock (e.g. MinIO)
+- Supports real AWS S3 bucket
 
 ---
 
-## 🧪 Testing
-
-Includes test Kafka producer and integration test:
-
-```bash
-./scripts/produce-test-message.sh
-```
-
----
 
 ## 🔧 Useful Scripts
 
@@ -201,22 +153,15 @@ Includes test Kafka producer and integration test:
 |--------------------------------|------------------------------------|
 | `start-services.sh`           | Bootstraps all core services       |
 | `run-pipeline.sh`             | Runs full Spark-based pipeline     |
+| `build-containers.sh`       | Builds all Docker containers       |
 | `build-and-run-spark-ingest.sh` | Build + run Spark ingestion       |
 | `run_pipeline_scheduled.sh`   | Runs pipeline periodically         |
 | `log-messages.sh`             | Reads logs from Kafka              |
+| `produce-test-messages.sh` | Produces test message to Kafka   |
 
 ---
 
-## 🏗️ Build Spark Jobs (Manually)
-
-```bash
-cd data-pipeline/spark
-sbt package
-```
-
----
-
-## 🧑‍💻  Core Team
+## 🧑‍💻  Development Team
 
 Cédric Damais \
 Yacine Benihaddadene \
