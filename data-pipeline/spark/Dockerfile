@@ -7,7 +7,6 @@ ARG SCALA_VERSION=2.12
 WORKDIR /app
 COPY target/scala-${SCALA_VERSION}/${JAR_NAME} ./ingest.jar
 
-# Set user and create directories as before
 USER root
 
 RUN useradd -m -u 1001 spark

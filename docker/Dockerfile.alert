@@ -18,7 +18,7 @@ WORKDIR /app
 COPY alerting-pipeline/spark/build.sbt .
 COPY alerting-pipeline/spark/project/ ./project/
 
-# Download dependencies (this layer will be cached if build.sbt doesn't change)
+# Download dependencies
 RUN sbt update
 
 # Copy source code
@@ -56,8 +56,6 @@ RUN mkdir -p /tmp/kafka-alerting-checkpoints /app/logs && \
 # Switch to non-root user
 USER appuser
 
-# Expose any ports if needed (not required for this Kafka consumer)
-# EXPOSE 8080
 
 # Environment variables with defaults
 ENV KAFKA_BOOTSTRAP_SERVERS=kafka:9092
@@ -78,7 +76,7 @@ ENV SMTP_PASSWORD=""
 ENV EMAIL_FROM_ADDRESS=iot-alerts@company.com
 ENV EMAIL_SUBJECT_PREFIX="[IoT Alert]"
 
-# Health check - check for Java process instead of HTTP
+# Health check 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD pgrep -f "processing.KafkaAlertingPipeline" || exit 1
 

@@ -1,11 +1,6 @@
 # from project root
 docker build -f sensor-simulator/Dockerfile -t sensor-producer:latest .
 
-# # Create if doesnt exist "iot-net" network
-# if ! docker network ls | grep -q iot-net; then
-#   docker network create iot-net
-# fi
-
 
 # Use the AWS credentials from the .env file
 docker run -d \

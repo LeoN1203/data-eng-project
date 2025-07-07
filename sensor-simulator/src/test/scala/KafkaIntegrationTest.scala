@@ -141,7 +141,7 @@ object IoTKafkaIntegrationTest {
     }
   }
 
-  /** More comprehensive test with specific data validation
+  /** Test with specific data validation
     */
   def runComprehensiveTest(): Boolean = {
     println("=" * 60)

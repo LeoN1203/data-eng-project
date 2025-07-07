@@ -239,7 +239,7 @@ object KafkaS3DataLakePipeline {
     println(s"=== DEBUG: Count query started with ID: ${countQuery.id} ===")
   }
 
-  /** Alternative method for batch processing with additional transformations
+  /** Batch processing with additional transformations
     */
   def processBatchWithAggregations(
       spark: SparkSession,

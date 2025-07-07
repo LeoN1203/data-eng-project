@@ -4,7 +4,7 @@ import sbt.Keys._
 
 // Basic project information
 ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / scalaVersion := "2.12.18" // Match bitnami Spark containers
+ThisBuild / scalaVersion := "2.12.18"
 ThisBuild / organization := "scala"
 
 val sparkVersion =
@@ -19,9 +19,9 @@ lazy val root = (project in file("."))
   .settings(
     name := "data-pipeline-scala",
     mainClass in assembly := Some(
-      "ingestion.KafkaS3DataLakePipeline" // Updated to correct main class
+      "ingestion.KafkaS3DataLakePipeline"
     ),
-    // Compiler options for better code quality and performance
+    // Compiler options
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8", // Specify character encoding
@@ -41,7 +41,7 @@ lazy val root = (project in file("."))
       "-XX:+UseStringDeduplication" // Reduce memory usage
     ),
 
-    // Dependency management - keeping their versions but compatible with Scala 2.12
+    // Dependency management
     libraryDependencies ++= Seq(
       // Spark Core
       "org.apache.spark" %% "spark-core" % sparkVersion % "provided",

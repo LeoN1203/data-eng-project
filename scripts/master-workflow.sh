@@ -317,7 +317,7 @@ start_alerting_pipeline() {
     success "Alerting pipeline started successfully and monitoring in real-time 🚨"
 }
 
-# Add countdown function after the existing functions
+
 countdown_timer() {
     local duration=$1
     local message=$2

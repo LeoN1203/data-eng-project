@@ -211,7 +211,7 @@ object BronzeJob extends App {
   }
 
   /**
-   * Alternative batch ingestion method for historical data
+   * Batch ingestion method for historical data
    */
   def ingestBatchToBronze(
     spark: SparkSession,
