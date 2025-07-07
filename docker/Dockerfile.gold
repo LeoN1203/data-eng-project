@@ -22,7 +22,7 @@ ENV SPARK_SQL_ADAPTIVE_COALESCE_PARTITIONS_ENABLED="true"
 ENV SPARK_SQL_ADAPTIVE_SKEW_JOIN_ENABLED="true"
 
 # AWS S3 packages
-ENV SPARK_PACKAGES="org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376,io.delta:delta-core_2.12:2.4.0"
+ENV SPARK_PACKAGES="org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -37,12 +37,10 @@ ENTRYPOINT ["spark-submit", \
   "--master", "local[*]", \
   "--driver-memory", "2g", \
   "--executor-memory", "2g", \
-  "--packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376,io.delta:delta-core_2.12:2.4.0", \
+  "--packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376", \
   "--conf", "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem", \
   "--conf", "spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider", \
   "--conf", "spark.sql.adaptive.enabled=true", \
   "--conf", "spark.sql.adaptive.coalescePartitions.enabled=true", \
   "--conf", "spark.sql.adaptive.skewJoin.enabled=true", \
-  "--conf", "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension", \
-  "--conf", "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog", \
   "/opt/spark-apps/data-pipeline.jar"] 

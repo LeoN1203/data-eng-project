@@ -16,19 +16,12 @@ ENV SPARK_DRIVER_MEMORY="2g"
 ENV SPARK_EXECUTOR_MEMORY="2g"
 ENV SPARK_EXECUTOR_CORES="2"
 
-# Database connectivity optimizations
+# Enable adaptive query execution for better performance
 ENV SPARK_SQL_ADAPTIVE_ENABLED="true"
 ENV SPARK_SQL_ADAPTIVE_COALESCE_PARTITIONS_ENABLED="true"
 
-# PostgreSQL connection settings
-ENV POSTGRES_HOST="localhost"
-ENV POSTGRES_PORT="5432"
-ENV POSTGRES_DB="grafana_db"
-ENV POSTGRES_USER="grafana"
-ENV POSTGRES_PASSWORD="grafana"
-
-# AWS S3 and PostgreSQL packages
-ENV SPARK_PACKAGES="org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376,io.delta:delta-core_2.12:2.4.0,org.postgresql:postgresql:42.7.0"
+# AWS S3 packages
+ENV SPARK_PACKAGES="org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -43,11 +36,9 @@ ENTRYPOINT ["spark-submit", \
   "--master", "local[*]", \
   "--driver-memory", "2g", \
   "--executor-memory", "2g", \
-  "--packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376,io.delta:delta-core_2.12:2.4.0,org.postgresql:postgresql:42.7.0", \
+  "--packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.376", \
   "--conf", "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem", \
   "--conf", "spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider", \
   "--conf", "spark.sql.adaptive.enabled=true", \
   "--conf", "spark.sql.adaptive.coalescePartitions.enabled=true", \
-  "--conf", "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension", \
-  "--conf", "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog", \
   "/opt/spark-apps/data-pipeline.jar"] 

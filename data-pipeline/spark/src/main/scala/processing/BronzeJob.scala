@@ -19,8 +19,6 @@ object BronzeJob extends App {
   private val spark = SparkSession.builder()
     .appName("Bronze-Data-Ingestion")
     .master("local[*]")
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
     .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
@@ -52,8 +50,17 @@ object BronzeJob extends App {
 
   println("Starting Bronze Data Ingestion Job...")
   
+  // Get S3 bucket from environment variable
+  val s3Bucket = sys.env.getOrElse("S3_BUCKET", "inde-aws-datalake")
+  val rawPath = s"s3a://$s3Bucket/raw/iot-data/"
+  val bronzePath = s"s3a://$s3Bucket/bronze/iot-data/"
+  
+  println(s"Using S3 bucket: $s3Bucket")
+  println(s"Raw path: $rawPath")
+  println(s"Bronze path: $bronzePath")
+  
   try {
-    ingestToBronze(spark, "s3a://inde-aws-datalake/raw/iot-data/", "s3a://inde-aws-datalake/bronze/iot-data/")
+    ingestToBronze(spark, rawPath, bronzePath)
   } catch {
     case e: Exception =>
       println(s"Error in Bronze ingestion: ${e.getMessage}")
@@ -70,20 +77,35 @@ object BronzeJob extends App {
 
     println(s"Reading raw data from: $rawPath")
     
-    // Read raw JSON data
+    // Define the schema for the JSON files in S3
+    val jsonSchema = StructType(Array(
+      StructField("value", StringType, true),
+      StructField("year", IntegerType, true),
+      StructField("month", IntegerType, true),
+      StructField("day", IntegerType, true),
+      StructField("hour", IntegerType, true)
+    ))
+    
+    // Read raw JSON data with explicit schema
     val rawData = spark.read
       .format("json")
+      .schema(jsonSchema)
       .option("multiline", "true")
       .load(rawPath)
     
     val recordCount = rawData.count()
     println(s"Found $recordCount records in raw data")
     
+    if (recordCount == 0) {
+      println("No data found in raw path. Exiting.")
+      return
+    }
+    
     println("Raw data schema:")
     rawData.printSchema()
     
     // Parse the JSON string in the value column to extract sensor data
-    val jsonSchema = StructType(Array(
+    val sensorSchema = StructType(Array(
       StructField("deviceId", StringType, true),
       StructField("temperature", DoubleType, true),
       StructField("humidity", DoubleType, true),
@@ -102,7 +124,7 @@ object BronzeJob extends App {
     
     // Parse JSON from value column and extract all fields
     val parsedData = rawData
-      .withColumn("parsed_json", from_json(col("value"), jsonSchema))
+      .withColumn("parsed_json", from_json(col("value"), sensorSchema))
       .select(
         col("parsed_json.deviceId").as("deviceId"),
         col("parsed_json.temperature").as("temperature"),
@@ -122,6 +144,7 @@ object BronzeJob extends App {
         col("day").as("raw_day"),
         col("hour").as("raw_hour")
       )
+      .filter(col("deviceId").isNotNull) // Filter out records with null deviceId
     
     println("Parsed data schema:")
     parsedData.printSchema()

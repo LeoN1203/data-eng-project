@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/spark-apps
 
-COPY target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar /opt/spark-apps/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
+COPY data-pipeline/spark/target/scala-2.12/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar /opt/spark-apps/data-pipeline-scala-assembly-0.1.0-SNAPSHOT.jar
 
 ENV SPARK_APPLICATION_MAIN_CLASS="processing.BronzeJob"
 ENV SPARK_MASTER="local[*]"
@@ -17,7 +17,7 @@ ENV PROCESS_DATE=""
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:4040 || exit 1
 
-COPY docker-entrypoint.sh /opt/spark-apps/docker-entrypoint.sh
+COPY docker/docker-entrypoint.sh /opt/spark-apps/docker-entrypoint.sh
 RUN chmod +x /opt/spark-apps/docker-entrypoint.sh
 
 ENTRYPOINT ["/opt/spark-apps/docker-entrypoint.sh"] 
