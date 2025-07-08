@@ -157,7 +157,7 @@ class IoTDataConsumer(topicName: String, consumerGroup: String) {
   /** Start consuming data with proper error handling
     */
   def startConsuming(processor: DataProcessor): Unit = {
-    try {
+    Try {
       Try {
         consumer.subscribe(util.Collections.singletonList(topicName))
         running.set(true)
@@ -218,9 +218,13 @@ class IoTDataConsumer(topicName: String, consumerGroup: String) {
         System.err.println(s"Fatal error in consumer: ${e.getMessage}")
         e.printStackTrace()
       }.get
-    } finally {
-      cleanup()
+    } match {
+      case Failure(e) =>
+        System.err.println(s"Critical error in consumer startup: ${e.getMessage}")
+        e.printStackTrace()
+      case _ =>
     }
+    cleanup()
   }
 
   /** Graceful shutdown

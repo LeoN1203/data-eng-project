@@ -5,6 +5,7 @@ import courier._
 import javax.mail.internet.InternetAddress
 import scala.concurrent.{Await, ExecutionContext}
 import scala.concurrent.duration._
+import scala.util.{Try, Success, Failure}
 
 /**
  * An implementation of EmailGateway that sends real emails using the courier library.
@@ -37,7 +38,7 @@ class CourrierEmailGateway(
     println(s"📧 Attempting to send real email to ${email.recipient}")
     println(s"📧 Subject: ${email.subject}")
     
-    try {
+    Try {
       // Création de l'envelope avec les bonnes classes
       val envelope = Envelope
         .from(new InternetAddress(fromEmail))
@@ -51,10 +52,11 @@ class CourrierEmailGateway(
       
       println("✅ Email sent successfully!")
       
-    } catch {
-      case ex: Exception =>
+    } match {
+      case Failure(ex) =>
         println(s"❌ Failed to send email: ${ex.getMessage}")
         ex.printStackTrace()
+      case _ =>
     }
   }
 }

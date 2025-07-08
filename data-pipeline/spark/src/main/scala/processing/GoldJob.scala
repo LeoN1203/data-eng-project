@@ -4,6 +4,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import java.text.SimpleDateFormat
 import java.util.Date
+import scala.util.{Try, Success, Failure}
 
 /**
  * GOLD TIER JOB - Simplified and Reliable Version
@@ -42,7 +43,7 @@ object GoldJob {
     // Process specific date (can be parameterized)
     val processDate = if (args.nonEmpty) args(0) else getCurrentDate()
     
-    try {
+    Try {
       println(s"Starting Gold Analytics Processing Job for date: $processDate")
       
       // Read Silver data
@@ -63,21 +64,21 @@ object GoldJob {
         println(s"No Silver data found for date: $processDate")
       }
       
-    } catch {
-      case e: Exception =>
+    } match {
+      case Failure(e) =>
         println(s"Error in Gold processing: ${e.getMessage}")
         e.printStackTrace()
         throw e
-    } finally {
-      spark.stop()
+      case _ =>
     }
+    spark.stop()
   }
 
   /**
    * Read Silver data for the specified date
    */
   def readSilverData(spark: SparkSession, silverPath: String, processDate: String): Option[DataFrame] = {
-    try {
+    Try {
       val dateParts = processDate.split("-")
       val year = dateParts(0)
       val month = dateParts(1).toInt.toString
@@ -100,8 +101,9 @@ object GoldJob {
         println("No valid records found in Silver data")
         None
       }
-    } catch {
-      case e: Exception =>
+    } match {
+      case Success(result) => result
+      case Failure(e) =>
         println(s"Error reading Silver data: ${e.getMessage}")
         None
     }

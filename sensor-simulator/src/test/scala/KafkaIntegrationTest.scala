@@ -69,7 +69,7 @@ object IoTKafkaIntegrationTest {
     var consumer: IoTDataConsumer = null
     var testProcessor: TestDataProcessor = null
 
-    try {
+    Try {
       // Step 1: Initialize components
       println("\n1. Initializing Producer and Consumer...")
       producer = new IoTDataProducer(TEST_TOPIC)
@@ -126,18 +126,25 @@ object IoTKafkaIntegrationTest {
 
       success
 
-    } catch {
-      case e: Exception =>
+    } match {
+      case Success(result) => 
+        // Cleanup
+        println("\n6. Cleaning up...")
+        if (consumer != null) consumer.shutdown()
+        if (producer != null) producer.close()
+        Thread.sleep(2000) // Give time for cleanup
+        println("Cleanup complete")
+        result
+      case Failure(e) =>
         println(s"\n❌ TEST ERROR: ${e.getMessage}")
         e.printStackTrace()
+        // Cleanup
+        println("\n6. Cleaning up...")
+        if (consumer != null) consumer.shutdown()
+        if (producer != null) producer.close()
+        Thread.sleep(2000) // Give time for cleanup
+        println("Cleanup complete")
         false
-    } finally {
-      // Cleanup
-      println("\n6. Cleaning up...")
-      if (consumer != null) consumer.shutdown()
-      if (producer != null) producer.close()
-      Thread.sleep(2000) // Give time for cleanup
-      println("Cleanup complete")
     }
   }
 
@@ -202,7 +209,7 @@ object IoTKafkaIntegrationTest {
     var consumer: IoTDataConsumer = null
     var validator: ValidatingTestProcessor = null
 
-    try {
+    Try {
       println("\n1. Initializing components for comprehensive test...")
       producer = new IoTDataProducer(TEST_TOPIC)
       consumer =
@@ -249,16 +256,21 @@ object IoTKafkaIntegrationTest {
 
       success
 
-    } catch {
-      case e: Exception =>
+    } match {
+      case Success(result) => 
+        println("\n6. Cleaning up comprehensive test...")
+        if (consumer != null) consumer.shutdown()
+        if (producer != null) producer.close()
+        Thread.sleep(2000)
+        result
+      case Failure(e) =>
         println(s"\n❌ COMPREHENSIVE TEST ERROR: ${e.getMessage}")
         e.printStackTrace()
+        println("\n6. Cleaning up comprehensive test...")
+        if (consumer != null) consumer.shutdown()
+        if (producer != null) producer.close()
+        Thread.sleep(2000)
         false
-    } finally {
-      println("\n6. Cleaning up comprehensive test...")
-      if (consumer != null) consumer.shutdown()
-      if (producer != null) producer.close()
-      Thread.sleep(2000)
     }
   }
 

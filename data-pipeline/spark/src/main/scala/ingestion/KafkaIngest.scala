@@ -5,6 +5,7 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.{OutputMode, Trigger}
 import org.apache.spark.sql.types._
 import java.util.concurrent.TimeUnit
+import scala.util.{Try, Success, Failure}
 
 object KafkaS3DataLakePipeline {
 
@@ -48,7 +49,7 @@ object KafkaS3DataLakePipeline {
     println(s"Kafka Bootstrap Servers: $kafkaBootstrapServers")
     println(s"Kafka Topic: $kafkaTopic")
 
-    try {
+    Try {
       // Read from Kafka stream
       val kafkaStream = readFromKafka(spark, kafkaBootstrapServers, kafkaTopic)
       
@@ -79,13 +80,13 @@ object KafkaS3DataLakePipeline {
       // Keep the application running
       spark.streams.awaitAnyTermination()
 
-    } catch {
-      case e: Exception =>
+    } match {
+      case Failure(e) =>
         println(s"Error in pipeline: ${e.getMessage}")
         e.printStackTrace()
-    } finally {
-      spark.stop()
+      case _ =>
     }
+    spark.stop()
   }
 
   /** Read streaming data from Kafka

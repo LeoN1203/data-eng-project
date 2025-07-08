@@ -5,6 +5,7 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.{OutputMode, Trigger}
 import org.apache.spark.sql.types._
 import java.util.concurrent.TimeUnit
+import scala.util.{Try, Success, Failure}
 import processing.alerts.core._
 import processing.alerts.email._
 import processing.config.PipelineConfig
@@ -48,7 +49,7 @@ object KafkaAlertingPipeline {
       new ConsoleEmailGateway()
     }
 
-    try {
+    Try {
       println("=== IoT Alerting Pipeline Starting ===")
       println(s"Kafka servers: ${pipelineConfig.kafka.bootstrapServers}")
       println(s"Kafka topic: ${pipelineConfig.kafka.topic}")
@@ -68,11 +69,12 @@ object KafkaAlertingPipeline {
       println("Kafka stream created successfully")
 
       // Log any invalid messages that don't match the expected schema
-      try {
+      Try {
         logInvalidMessages(kafkaStream)
-      } catch {
-        case e: Exception =>
+      } match {
+        case Failure(e) =>
           println(s"Warning: Could not validate message schemas: ${e.getMessage}")
+        case _ =>
       }
 
       // Start the alerting pipeline
@@ -92,13 +94,13 @@ object KafkaAlertingPipeline {
       // Keep the application running
       alertingQuery.awaitTermination()
 
-    } catch {
-      case e: Exception =>
+    } match {
+      case Failure(e) =>
         println(s"Error in alerting pipeline: ${e.getMessage}")
         e.printStackTrace()
-    } finally {
-      spark.stop()
+      case _ =>
     }
+    spark.stop()
   }
 
   /**
@@ -245,7 +247,7 @@ object KafkaAlertingPipeline {
 
     // Convert DataFrame rows to IoTSensorData case classes
     val sensorDataList = batchDF.collect().toList.flatMap { row =>
-      try {
+      Try {
         val sensorData = IoTSensorData(
           deviceId = row.getAs[String]("deviceId"),
           temperature = Option(row.getAs[Double]("temperature")),
@@ -263,9 +265,10 @@ object KafkaAlertingPipeline {
           )
         )
         println(s"Parsed sensor data for device ${sensorData.deviceId}: temp=${sensorData.temperature}, humid=${sensorData.humidity}")
-        Some(sensorData)
-      } catch {
-        case e: Exception =>
+        sensorData
+      } match {
+        case Success(data) => Some(data)
+        case Failure(e) =>
           println(s"Error parsing sensor data from row: ${e.getMessage}")
           e.printStackTrace()
           None
@@ -279,7 +282,7 @@ object KafkaAlertingPipeline {
     var emailsSent = 0
 
     sensorDataList.foreach { sensorData =>
-      try {
+      Try {
         println(s"Checking anomalies for device ${sensorData.deviceId}...")
         
         // Use SensorAlerting pure functions to detect anomalies and format alerts
@@ -304,10 +307,11 @@ object KafkaAlertingPipeline {
         // Count anomalies for statistics
         totalAnomalies += anomalies.size
 
-      } catch {
-        case e: Exception =>
+      } match {
+        case Failure(e) =>
           println(s"Error processing alerts for device ${sensorData.deviceId}: ${e.getMessage}")
           e.printStackTrace()
+        case _ =>
       }
     }
 
@@ -337,7 +341,7 @@ object KafkaAlertingPipeline {
       location: String,
       timestamp: Long
     ) => {
-      try {
+      Try {
         val sensorData = IoTSensorData(
           deviceId = deviceId,
           temperature = Option(temperature),
@@ -353,9 +357,7 @@ object KafkaAlertingPipeline {
         
         val anomalies = SensorAlerting.checkForAnomalies(sensorData, SensorAlertConfig())
         anomalies.map(_.anomalyType).mkString(", ")
-      } catch {
-        case _: Exception => ""
-      }
+      }.getOrElse("")
     })
 
     // Apply the UDF to detect anomalies
@@ -424,16 +426,17 @@ object KafkaAlertingPipeline {
       .filter(col("parsed_data").isNull || col("parsed_data.deviceId").isNull || col("parsed_data.location").isNull)
       .limit(10)
 
-    try {
+    Try {
       val invalidCount = invalidMessages.count()
       if (invalidCount > 0) {
         println(s"Warning: $invalidCount messages failed schema validation. Sample invalid messages:")
         invalidMessages.show(5, truncate = false)
         println("Common issues: missing 'deviceId', 'location' fields, or using 'device_id' instead of 'deviceId'")
       }
-    } catch {
-      case e: Exception =>
+    } match {
+      case Failure(e) =>
         println(s"Could not check for invalid messages: ${e.getMessage}")
+      case _ =>
     }
   }
 }

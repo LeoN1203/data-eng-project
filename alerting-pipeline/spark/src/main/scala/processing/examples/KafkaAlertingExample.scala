@@ -6,7 +6,7 @@ import processing.alerts.email._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import org.apache.kafka.common.serialization.StringSerializer
 import java.util.Properties
-import scala.util.{Random, Try}
+import scala.util.{Random, Try, Success, Failure}
 import scala.concurrent.duration._
 import java.util.concurrent.{Executors, TimeUnit}
 
@@ -89,7 +89,7 @@ object KafkaAlertingExample {
     val producer = createKafkaProducer(bootstrapServers)
     val random = new Random()
     
-    try {
+    Try {
       var messageCount = 0
       
       while (true) {
@@ -110,13 +110,13 @@ object KafkaAlertingExample {
         // Send data every 5 seconds
         Thread.sleep(5000)
       }
-    } catch {
-      case e: Exception =>
+    } match {
+      case Failure(e) =>
         println(s"Error in producer: ${e.getMessage}")
         e.printStackTrace()
-    } finally {
-      producer.close()
+      case _ =>
     }
+    producer.close()
   }
 
   private def createKafkaProducer(bootstrapServers: String): KafkaProducer[String, String] = {

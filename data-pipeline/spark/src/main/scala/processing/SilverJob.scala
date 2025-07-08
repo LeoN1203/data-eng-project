@@ -5,6 +5,7 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import java.text.SimpleDateFormat
 import java.util.Date
+import scala.util.{Try, Success, Failure}
 
 /**
  * SILVER TIER JOB
@@ -53,7 +54,7 @@ object SilverJob {
     // Process specific date range (can be parameterized)
     val processDate = if (args.nonEmpty) args(0) else getCurrentDate()
     
-    try {
+    Try {
       println(s"Starting Silver Data Processing Job for date: $processDate")
       
       // Process Bronze to Silver
@@ -64,13 +65,13 @@ object SilverJob {
       
       println("Silver processing completed successfully!")
       
-    } catch {
-      case e: Exception =>
+    } match {
+      case Failure(e) =>
         println(s"Error in Silver processing: ${e.getMessage}")
         e.printStackTrace()
-    } finally {
-      spark.stop()
+      case _ =>
     }
+    spark.stop()
   }
 
   /**
@@ -116,7 +117,7 @@ object SilverJob {
    * Read Bronze data for a specific date
    */
   def readBronzeData(spark: SparkSession, bronzePath: String, processDate: String): Option[DataFrame] = {
-    try {
+    Try {
       val dateParts = processDate.split("-")
       val year = dateParts(0)
       val month = dateParts(1).toInt.toString
@@ -132,8 +133,9 @@ object SilverJob {
         .filter(col("processing_status") === "ingested")
       
       if (df.count() > 0) Some(df) else None
-    } catch {
-      case e: Exception =>
+    } match {
+      case Success(result) => result
+      case Failure(e) =>
         println(s"Error reading Bronze data: ${e.getMessage}")
         None
     }

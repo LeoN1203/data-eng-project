@@ -3,6 +3,7 @@ package processing
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
+import scala.util.{Try, Success, Failure}
 
 /**
  * BRONZE TIER JOB
@@ -32,20 +33,21 @@ object BronzeJob extends App {
   spark.sparkContext.setLogLevel("WARN")
 
   println("Testing S3 connectivity...")
-  try {
+  Try {
     // Test S3 connectivity by attempting to read/write
     import spark.implicits._
     val testDF = Seq(("test", "connectivity")).toDF("key", "value")
     val testPath = "s3a://inde-aws-datalake/bronze/test/connectivity_test"
     testDF.write.mode("overwrite").parquet(testPath)
     println("✓ S3 connectivity test successful!")
-  } catch {
-    case e: Exception =>
+  } match {
+    case Failure(e) =>
       println(s"✗ S3 connectivity test failed: ${e.getMessage}")
       println("Environment variables:")
       println(s"AWS_ACCESS_KEY_ID: ${sys.env.get("AWS_ACCESS_KEY_ID").map(_.take(10) + "...").getOrElse("NOT SET")}")
       println(s"AWS_SECRET_ACCESS_KEY: ${if (sys.env.contains("AWS_SECRET_ACCESS_KEY")) "***SET***" else "NOT SET"}")
       println(s"AWS_DEFAULT_REGION: ${sys.env.getOrElse("AWS_DEFAULT_REGION", "NOT SET")}")
+    case _ =>
   }
 
   println("Starting Bronze Data Ingestion Job...")
@@ -59,12 +61,13 @@ object BronzeJob extends App {
   println(s"Raw path: $rawPath")
   println(s"Bronze path: $bronzePath")
   
-  try {
+  Try {
     ingestToBronze(spark, rawPath, bronzePath)
-  } catch {
-    case e: Exception =>
+  } match {
+    case Failure(e) =>
       println(s"Error in Bronze ingestion: ${e.getMessage}")
       e.printStackTrace()
+    case _ =>
   }
 
   private def ingestToBronze(

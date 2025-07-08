@@ -282,12 +282,13 @@ class ErrorHandlingTest extends AnyFlatSpec with Matchers with TryValues {
 class FailingEmailGateway extends EmailGateway {
   override def send(email: Email): Unit = {
     // Simulate network failure but handle it gracefully
-    try {
+    Try {
       throw new RuntimeException("Network connection failed")
-    } catch {
-      case _: RuntimeException =>
+    } match {
+      case Failure(_) =>
         // Log the failure but don't propagate the exception
         println(s"Failed to send email to ${email.recipient}: Network connection failed")
+      case _ =>
     }
   }
 }

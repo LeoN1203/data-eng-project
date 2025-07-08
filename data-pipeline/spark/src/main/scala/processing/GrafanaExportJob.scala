@@ -4,8 +4,8 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Properties
+import java.util.{Date, Properties}
+import scala.util.{Try, Success, Failure}
 
 /**
  * GRAFANA EXPORT JOB
@@ -57,7 +57,7 @@ object GrafanaExportJob {
     // Process specific date range (can be parameterized)
     val exportDate = if (args.nonEmpty) args(0) else getCurrentDate()
     
-    try {
+    Try {
       println(s"Starting Grafana Export Job for date: $exportDate")
       println(s"Reading Gold data from: $goldPath")
       
@@ -69,13 +69,13 @@ object GrafanaExportJob {
       
       println("Grafana export completed successfully!")
       
-    } catch {
-      case e: Exception =>
+    } match {
+      case Failure(e) =>
         println(s"Error in Grafana export: ${e.getMessage}")
         e.printStackTrace()
-    } finally {
-      spark.stop()
+      case _ =>
     }
+    spark.stop()
   }
 
   /**
@@ -123,7 +123,7 @@ object GrafanaExportJob {
     exportDate: String
   ): Long = {
 
-    try {
+    Try {
       // Read hourly metrics from Gold tier
       val hourlyMetrics = spark.read
         .format("parquet")
@@ -176,8 +176,9 @@ object GrafanaExportJob {
       
       recordCount
 
-    } catch {
-      case e: Exception =>
+    } match {
+      case Success(count) => count
+      case Failure(e) =>
         println(s"❌ Error exporting hourly metrics: ${e.getMessage}")
         e.printStackTrace()
         0L
@@ -195,7 +196,7 @@ object GrafanaExportJob {
     exportDate: String
   ): Long = {
 
-    try {
+    Try {
       // Read daily report from Gold tier
       val dailyReport = spark.read
         .format("parquet")
@@ -246,8 +247,9 @@ object GrafanaExportJob {
       
       recordCount
 
-    } catch {
-      case e: Exception =>
+    } match {
+      case Success(count) => count
+      case Failure(e) =>
         println(s"❌ Error exporting daily report: ${e.getMessage}")
         e.printStackTrace()
         0L
@@ -265,7 +267,7 @@ object GrafanaExportJob {
     exportDate: String
   ): Long = {
 
-    try {
+    Try {
       // Read device summary from Gold tier
       val deviceSummary = spark.read
         .format("parquet")
@@ -313,8 +315,9 @@ object GrafanaExportJob {
       
       recordCount
 
-    } catch {
-      case e: Exception =>
+    } match {
+      case Success(count) => count
+      case Failure(e) =>
         println(s"❌ Error exporting device summary: ${e.getMessage}")
         e.printStackTrace()
         0L

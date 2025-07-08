@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import java.time.Instant
 import java.time.Duration
-import scala.util.{Random, Try}
+import scala.util.{Random, Try, Success, Failure}
 
 /** IoT Device Data Producer
   *
@@ -201,11 +201,15 @@ object IoTDataProducer {
       producer.close()
     }
 
-    try {
+    Try {
       // Generate data for 30 seconds at 5 messages per second
       producer.startDataGeneration(1, 10000)
-    } finally {
-      producer.close()
+    } match {
+      case Failure(e) =>
+        println(s"Error in data generation: ${e.getMessage}")
+        e.printStackTrace()
+      case _ =>
     }
+    producer.close()
   }
 }

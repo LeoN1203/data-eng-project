@@ -8,6 +8,7 @@ import scala.collection.mutable.ListBuffer
 import scala.concurrent.{Future, ExecutionContext, Await}
 import scala.concurrent.duration._
 import scala.util.Random
+import scala.util.{Try, Success, Failure}
 import java.util.concurrent.{Executors, ConcurrentLinkedQueue}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import scala.collection.JavaConverters._
@@ -69,7 +70,7 @@ class ConcurrentProcessingTest extends AnyFlatSpec with Matchers {
     
     val emailTasks = (1 to numConcurrentEmails).map { i =>
       Future {
-        try {
+        Try {
           val anomaly = Anomaly(
             deviceId = s"load-test-sensor-$i",
             anomalyType = "Temperature",
@@ -84,8 +85,9 @@ class ConcurrentProcessingTest extends AnyFlatSpec with Matchers {
             asyncEmailGateway.send(e)
             sentCounter.incrementAndGet()
           }
-        } catch {
-          case _: Exception => errorCounter.incrementAndGet()
+        } match {
+          case Failure(_) => errorCounter.incrementAndGet()
+          case _ =>
         }
       }
     }
@@ -173,7 +175,7 @@ class ConcurrentProcessingTest extends AnyFlatSpec with Matchers {
     
     val burstTasks = burstPattern.zipWithIndex.map { case ((count, intervalMs), burstId) =>
       Future {
-        try {
+        Try {
           (1 to count).foreach { i =>
             val sensorData = generateAnomalousSensorData(s"burst-$burstId-sensor-$i")
             val anomalies = SensorAlerting.checkForAnomalies(sensorData, config)
@@ -181,8 +183,9 @@ class ConcurrentProcessingTest extends AnyFlatSpec with Matchers {
             
             if (i < count) Thread.sleep(intervalMs)
           }
-        } catch {
-          case _: Exception => errorCounter.incrementAndGet()
+        } match {
+          case Failure(_) => errorCounter.incrementAndGet()
+          case _ =>
         }
       }
     }
